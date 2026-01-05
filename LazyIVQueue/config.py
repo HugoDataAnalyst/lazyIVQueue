@@ -2,10 +2,8 @@ import os
 import sys
 import json
 import dotenv
-import urllib.parse
 
-from requests import get
-from utils.logger import logger
+from LazyIVQueue.utils.logger import logger
 from typing import List, Optional, Dict
 
 # load config.json
@@ -75,11 +73,51 @@ geofence_refresh_cache_seconds = config.get("geofences", {}).get("refresh_cache_
 log_level = get_env_var("LOG_LEVEL", "INFO").upper()
 log_file = get_env_var("LOG_FILE", "FALSE").upper() == "TRUE"
 
-golbat_webhook = get_env_int("GOLBAT_WEBHOOK", "127.0.0.1:8080")
+golbat_webhook = get_env_list("GOLBAT_WEBHOOK", None)
+golbat_webhook_url = get_env_list("GOLBAT_WEBHOOK_URL", None)
 
-# IVQueue
-# idlist from config.get...
-# concurrency_scout = config.get("scout", {}).get("concurrency", 5)
+# IVQueue - Priority list of Pokemon to scout
+# Format: ["1", "3:0", "10:0"] where "1" = pokemon_id 1 any form, "3:0" = pokemon_id 3 form 0
+# Lower index = higher priority (first item is highest priority)
+ivlist: List[str] = config.get("ivlist", [])
+
+def parse_ivlist(raw_list: List[str]) -> Dict[str, int]:
+    """
+    Parses ivlist into {pokemon_key: priority} mapping.
+    Returns dict where key is "pokemon_id" or "pokemon_id:form"
+    and value is priority (0 = highest).
+    """
+    result = {}
+    for idx, entry in enumerate(raw_list):
+        result[entry.strip()] = idx
+    return result
+
+ivlist_parsed: Dict[str, int] = parse_ivlist(ivlist)
+
+def get_pokemon_priority(pokemon_id: int, form: Optional[int]) -> Optional[int]:
+    """
+    Get priority for a pokemon based on ivlist.
+    Returns None if not in ivlist.
+    """
+    # First check exact match (pokemon_id:form)
+    if form is not None:
+        key = f"{pokemon_id}:{form}"
+        if key in ivlist_parsed:
+            return ivlist_parsed[key]
+
+    # Then check any-form match (just pokemon_id)
+    key = str(pokemon_id)
+    if key in ivlist_parsed:
+        return ivlist_parsed[key]
+
+    return None
+
+def is_pokemon_in_ivlist(pokemon_id: int, form: Optional[int]) -> bool:
+    """Check if pokemon matches ivlist."""
+    return get_pokemon_priority(pokemon_id, form) is not None
+
+# Scout concurrency
+concurrency_scout: int = config.get("scout", {}).get("concurrency", 5)
 
 # Dragonite
 DRAGONITE_API_BASE_URL = get_env_var("DRAGONITE_API_BASE_URL")
