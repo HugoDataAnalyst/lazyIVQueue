@@ -1,0 +1,41 @@
+from typing import Any, Dict
+from LazyIVQueue.utils.logger import logger
+from LazyIVQueue.DragoniteAPI.utils.http_api import APIClient
+
+# -------- Proxies as an Example --------------------
+async def add_proxy(client: APIClient, *, proxy_id: int, name: str, url: str) -> Dict[str, Any]:
+    """
+    POST /proxies/
+    Body:
+    {
+      "id": 0,
+      "name": "string",
+      "url": "http://example.com",
+      "enabled": true
+    }
+    """
+    payload = {
+        "id": proxy_id,
+        "name": name,
+        "url": url,
+        "enabled": True,
+    }
+    res = await client.post("/proxies/", json=payload)
+
+    #logger.debug(f"[add_proxy] Sent: {payload} | Response: {res}")
+    logger.debug(f"[add_proxy] Proxy ID: {proxy_id} | Response: {res}")
+
+    return res
+
+"""
+🧭 Scout API
+POST /scout
+Submit scout coordinates (v1).
+Request Body: [[lat, lng], [lat, lng], ...]
+
+POST /scout/v2
+Submit scout coordinates (v2).
+
+We will need to check which one will work (v1 or v2)
+
+"""
