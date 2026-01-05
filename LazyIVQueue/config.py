@@ -1,5 +1,4 @@
 import os
-import sys
 import json
 import dotenv
 
@@ -73,9 +72,6 @@ geofence_refresh_cache_seconds = config.get("geofences", {}).get("refresh_cache_
 log_level = get_env_var("LOG_LEVEL", "INFO").upper()
 log_file = get_env_var("LOG_FILE", "FALSE").upper() == "TRUE"
 
-golbat_webhook = get_env_list("GOLBAT_WEBHOOK", None)
-golbat_webhook_url = get_env_list("GOLBAT_WEBHOOK_URL", None)
-
 # IVQueue - Priority list of Pokemon to scout
 # Format: ["1", "3:0", "10:0"] where "1" = pokemon_id 1 any form, "3:0" = pokemon_id 3 form 0
 # Lower index = higher priority (first item is highest priority)
@@ -126,6 +122,10 @@ DRAGONITE_API_PASSWORD = get_env_var("DRAGONITE_API_PASSWORD", None)
 DRAGONITE_API_KEY = get_env_var("DRAGONITE_API_KEY", None)
 DRAGONITE_BEARER_KEY = get_env_var("DRAGONITE_BEARER_KEY", None)
 
-# Secuirty
+# LazyIVQueue Admin API
+lazyivqueue_host = get_env_var("LAZYIVQUEUE_HOST", "0.0.0.0")
+lazyivqueue_port = get_env_int("LAZYIVQUEUE_PORT", 7070)
+
+# Security
 allowed_ips = get_env_list("ALLOWED_IPS", None)
 headers = get_env_var("HEADERS", None)
