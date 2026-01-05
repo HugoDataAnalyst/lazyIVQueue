@@ -1,0 +1,343 @@
+"""IV Queue Manager - In-memory priority queue for Pokemon needing IV data."""
+from __future__ import annotations
+
+import asyncio
+import heapq
+import time
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+from LazyIVQueue.utils.logger import logger
+from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
+import LazyIVQueue.config as AppConfig
+
+
+@dataclass(order=True)
+class QueueEntry:
+    """
+    Entry in the IV queue.
+
+    Ordering is by (priority, timestamp) for heapq.
+    Lower priority number = higher priority (processed first).
+    """
+
+    # Comparison fields (used for heap ordering)
+    priority: int = field(compare=True)
+    timestamp: float = field(compare=True, default_factory=time.time)
+
+    # Non-comparison fields
+    pokemon_id: int = field(compare=False, default=0)
+    form: Optional[int] = field(compare=False, default=None)
+    area: str = field(compare=False, default="")
+    lat: float = field(compare=False, default=0.0)
+    lon: float = field(compare=False, default=0.0)
+    spawnpoint_id: Optional[str] = field(compare=False, default=None)
+    encounter_id: Optional[str] = field(compare=False, default=None)
+    disappear_time: Optional[int] = field(compare=False, default=None)
+
+    # Tracking fields
+    is_removed: bool = field(compare=False, default=False)
+    is_scouting: bool = field(compare=False, default=False)
+    scout_started_at: Optional[float] = field(compare=False, default=None)
+
+    @property
+    def unique_key(self) -> str:
+        """Unique identifier for deduplication."""
+        if self.encounter_id:
+            return self.encounter_id
+        if self.spawnpoint_id:
+            return f"{self.spawnpoint_id}:{self.pokemon_id}"
+        return f"{self.lat:.6f}:{self.lon:.6f}:{self.pokemon_id}"
+
+    @property
+    def pokemon_display(self) -> str:
+        """Human-readable pokemon identifier."""
+        if self.form is not None:
+            return f"{self.pokemon_id}:{self.form}"
+        return str(self.pokemon_id)
+
+
+class IVQueueManager:
+    """
+    Priority queue manager for Pokemon needing IV data.
+
+    Features:
+    - Heap-based priority queue (lower priority number = higher priority)
+    - Deduplication by encounter_id/spawnpoint_id
+    - Concurrent scout tracking with semaphore
+    - Proximity-based matching for removal
+    """
+
+    _instance: Optional[IVQueueManager] = None
+    _lock: asyncio.Lock = asyncio.Lock()
+
+    def __init__(self) -> None:
+        self._heap: List[QueueEntry] = []
+        self._entries: Dict[str, QueueEntry] = {}  # key -> entry for O(1) lookup
+        self._scout_semaphore: Optional[asyncio.Semaphore] = None
+        self._active_scouts: int = 0
+        self._queue_lock: asyncio.Lock = asyncio.Lock()
+        self._initialized: bool = False
+
+    @classmethod
+    async def get_instance(cls) -> IVQueueManager:
+        """Get or create singleton instance."""
+        async with cls._lock:
+            if cls._instance is None:
+                cls._instance = IVQueueManager()
+                await cls._instance.initialize()
+            return cls._instance
+
+    async def initialize(self) -> None:
+        """Initialize the queue manager."""
+        if self._initialized:
+            return
+
+        self._scout_semaphore = asyncio.Semaphore(AppConfig.concurrency_scout)
+        self._initialized = True
+        logger.info(f"IVQueue initialized with concurrency limit: {AppConfig.concurrency_scout}")
+
+    async def add(self, entry: QueueEntry) -> bool:
+        """
+        Add entry to queue.
+
+        Args:
+            entry: QueueEntry to add
+
+        Returns:
+            True if added, False if duplicate
+        """
+        async with self._queue_lock:
+            key = entry.unique_key
+
+            # Check for duplicate
+            if key in self._entries:
+                logger.debug(f"Duplicate entry skipped: {key}")
+                return False
+
+            # Add to heap and lookup dict
+            heapq.heappush(self._heap, entry)
+            self._entries[key] = entry
+
+            logger.debug(
+                f"Added to queue: {entry.pokemon_display} in {entry.area} "
+                f"(priority {entry.priority}, queue size: {len(self._entries)})"
+            )
+            return True
+
+    async def remove_by_match(
+        self, spawnpoint_id: Optional[str], lat: float, lon: float
+    ) -> Optional[QueueEntry]:
+        """
+        Remove entry matching by spawnpoint_id or coordinates (70m proximity).
+
+        Args:
+            spawnpoint_id: Spawnpoint ID to match (exact match)
+            lat: Latitude for proximity match
+            lon: Longitude for proximity match
+
+        Returns:
+            Removed entry if found, None otherwise
+        """
+        async with self._queue_lock:
+            # First try exact spawnpoint match
+            if spawnpoint_id:
+                for key, entry in list(self._entries.items()):
+                    if entry.spawnpoint_id == spawnpoint_id and not entry.is_removed:
+                        return self._remove_entry(key)
+
+            # Then try coordinate proximity match
+            for key, entry in list(self._entries.items()):
+                if entry.is_removed:
+                    continue
+                if is_within_distance(
+                    entry.lat, entry.lon, lat, lon, COORDINATE_MATCH_THRESHOLD_METERS
+                ):
+                    return self._remove_entry(key)
+
+            return None
+
+    def _remove_entry(self, key: str) -> Optional[QueueEntry]:
+        """Remove entry by key (internal, must hold lock)."""
+        if key not in self._entries:
+            return None
+
+        entry = self._entries.pop(key)
+        # Mark as removed for lazy deletion from heap
+        entry.is_removed = True
+
+        logger.debug(
+            f"Removed from queue: {entry.pokemon_display} "
+            f"(queue size: {len(self._entries)})"
+        )
+        return entry
+
+    async def get_next_for_scout(self) -> Optional[QueueEntry]:
+        """
+        Get next highest priority entry not currently being scouted.
+
+        Uses semaphore to limit concurrent scouts.
+        Returns None if no entries available or at concurrency limit.
+        """
+        # Try to acquire semaphore slot without blocking
+        acquired = self._scout_semaphore.locked()
+        if acquired:
+            # Semaphore is fully locked, check if we can get a slot
+            try:
+                # Non-blocking acquire attempt
+                got_slot = self._scout_semaphore._value > 0
+                if not got_slot:
+                    return None
+            except Exception:
+                return None
+
+        # Acquire the semaphore slot
+        await self._scout_semaphore.acquire()
+
+        async with self._queue_lock:
+            # Clean up heap (lazy deletion) and find valid entry
+            while self._heap:
+                entry = self._heap[0]
+                key = entry.unique_key
+
+                # Skip if already removed or being scouted
+                if key not in self._entries or entry.is_removed or entry.is_scouting:
+                    heapq.heappop(self._heap)
+                    continue
+
+                # Found valid entry
+                heapq.heappop(self._heap)
+                entry.is_scouting = True
+                entry.scout_started_at = time.time()
+                self._active_scouts += 1
+
+                logger.debug(
+                    f"Dispatching for scout: {entry.pokemon_display} in {entry.area} "
+                    f"(active scouts: {self._active_scouts})"
+                )
+                return entry
+
+            # No entries available, release semaphore
+            self._scout_semaphore.release()
+            return None
+
+    async def mark_scout_complete(self, entry: QueueEntry, success: bool) -> None:
+        """
+        Mark a scout operation as complete and release semaphore slot.
+
+        Args:
+            entry: The queue entry that was being scouted
+            success: Whether the scout was successful
+        """
+        async with self._queue_lock:
+            key = entry.unique_key
+            if key in self._entries:
+                del self._entries[key]
+
+            self._active_scouts = max(0, self._active_scouts - 1)
+
+        self._scout_semaphore.release()
+
+        status = "success" if success else "failed"
+        logger.debug(
+            f"Scout {status} for {entry.pokemon_display}, "
+            f"active scouts: {self._active_scouts}"
+        )
+
+    def get_active_scouts_count(self) -> int:
+        """Return count of currently active scouts."""
+        return self._active_scouts
+
+    def get_queue_size(self) -> int:
+        """Return current queue size (excluding entries being scouted)."""
+        return len(self._entries)
+
+    def get_available_slots(self) -> int:
+        """Return number of available scout slots."""
+        return AppConfig.concurrency_scout - self._active_scouts
+
+    async def get_stats(self) -> Dict[str, Any]:
+        """Return queue statistics."""
+        return {
+            "queue_size": len(self._entries),
+            "active_scouts": self._active_scouts,
+            "max_concurrency": AppConfig.concurrency_scout,
+            "available_slots": self.get_available_slots(),
+        }
+
+    def get_next_entries_preview(self, count: int = 10) -> List[Dict[str, Any]]:
+        """
+        Get preview of the next N entries that will be processed.
+
+        Args:
+            count: Number of entries to preview (default: 10)
+
+        Returns:
+            List of entry info dicts in priority order
+        """
+        # Build a sorted list of valid entries
+        valid_entries = []
+        for entry in self._entries.values():
+            if not entry.is_removed and not entry.is_scouting:
+                valid_entries.append(entry)
+
+        # Sort by priority, then timestamp
+        valid_entries.sort(key=lambda e: (e.priority, e.timestamp))
+
+        # Return preview of top N
+        preview = []
+        for entry in valid_entries[:count]:
+            preview.append({
+                "pokemon": entry.pokemon_display,
+                "area": entry.area,
+                "priority": entry.priority,
+                "lat": round(entry.lat, 6),
+                "lon": round(entry.lon, 6),
+                "spawnpoint": entry.spawnpoint_id,
+            })
+
+        return preview
+
+    def log_queue_status(self) -> None:
+        """Log current queue status with next 10 entries preview."""
+        queue_size = len(self._entries)
+        active = self._active_scouts
+        available = self.get_available_slots()
+
+        logger.info(
+            f"IVQueue Status: {queue_size} queued | "
+            f"{active} active scouts | "
+            f"{available} slots available"
+        )
+
+        if queue_size > 0:
+            preview = self.get_next_entries_preview(10)
+            if preview:
+                logger.debug("Next entries in queue:")
+                for i, entry in enumerate(preview, 1):
+                    logger.debug(
+                        f"  {i}. Pokemon {entry['pokemon']} in {entry['area']} "
+                        f"(priority {entry['priority']})"
+                    )
+
+    async def cleanup_expired(self) -> int:
+        """
+        Remove entries that have expired (disappear_time has passed).
+
+        Returns:
+            Number of entries removed
+        """
+        current_time = int(time.time())
+        removed_count = 0
+
+        async with self._queue_lock:
+            for key, entry in list(self._entries.items()):
+                if entry.disappear_time and entry.disappear_time < current_time:
+                    entry.is_removed = True
+                    del self._entries[key]
+                    removed_count += 1
+
+        if removed_count > 0:
+            logger.debug(f"Cleaned up {removed_count} expired queue entries")
+
+        return removed_count
