@@ -1,1 +1,11 @@
-loguru==0.7.3
+# Core dependencies
+loguru>=0.7.3
+aiohttp>=3.13.3
+python-dotenv>=1.0.0
+yarl>=1.22.0
+
+# Caching
+cachetools>=6.2.4
+
+# Geospatial
+shapely>=2.1.2
