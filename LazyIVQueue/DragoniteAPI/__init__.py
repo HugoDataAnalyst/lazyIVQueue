@@ -1,6 +1,8 @@
-from LazyIVQeue.DragoniteAPI.utils.http_api import APIClient
+"""Dragonite API package."""
+from LazyIVQueue.DragoniteAPI.utils.http_api import APIClient
 import LazyIVQueue.config as AppConfig
 from LazyIVQueue.utils.logger import logger
+
 
 def get_dragonite_client() -> APIClient:
     """
@@ -18,3 +20,6 @@ def get_dragonite_client() -> APIClient:
     bearer = AppConfig.DRAGONITE_BEARER_KEY or None
     secret = AppConfig.DRAGONITE_API_KEY or None
     return APIClient(base, username=username, password=password, bearer=bearer, secret=secret)
+
+
+__all__ = ["get_dragonite_client", "APIClient"]
