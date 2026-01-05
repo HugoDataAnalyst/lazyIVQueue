@@ -7,7 +7,7 @@ from typing import List, Optional, Dict
 
 # load config.json
 
-CONFIG_PATH = os.path.join(os.getcwd(), "config", "config.json")
+CONFIG_PATH = os.path.join(os.getcwd(), "LazyIVQueue", "config", "config.json")
 
 def load_config() -> Dict[str, any]:
     try:
