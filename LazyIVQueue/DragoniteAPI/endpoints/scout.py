@@ -1,51 +1,80 @@
-"""Dragonite Scout API endpoints."""
-from typing import Any, List, Tuple
+"""Dragonite Scout API v2 endpoints."""
+from typing import Any, List, Tuple, Optional
 
 from LazyIVQueue.DragoniteAPI.utils.http_api import APIClient
 from LazyIVQueue.utils.logger import logger
 
 
-async def scout_coordinates(
-    client: APIClient, coordinates: List[Tuple[float, float]]
+# Default scout options for pokemon scanning
+DEFAULT_SCOUT_OPTIONS = {
+    "pokemon": True,
+    "pokemon_encounter_radius": 70,  # meters
+    "gmf": False,
+    "routes": False,
+    "showcases": False,
+}
+
+
+async def scout_v2(
+    client: APIClient,
+    coordinates: List[Tuple[float, float]],
+    username: str = "LazyIVQueue",
+    options: Optional[dict] = None,
 ) -> Any:
     """
-    POST /scout - Submit scout coordinates to Dragonite.
+    POST /v2/scout - Submit scout coordinates to Dragonite v2 API.
 
     Args:
         client: APIClient instance
         coordinates: List of (lat, lon) tuples
+        username: Username to identify the scout request source
+        options: Scout options (pokemon, gmf, routes, etc.)
 
     Returns:
         API response
     """
-    # Format: [[lat, lon], [lat, lon], ...]
-    # I need to test this actually..
-    payload = [[lat, lon] for lat, lon in coordinates]
+    # Use default options if not provided
+    scout_options = options or DEFAULT_SCOUT_OPTIONS
 
-    logger.debug(f"[scout] Sending {len(coordinates)} coordinate(s) to Dragonite")
-    response = await client.post("/scout", json=payload)
+    # Format coordinates with 5 decimal precision
+    locations = [[round(lat, 5), round(lon, 5)] for lat, lon in coordinates]
+
+    payload = {
+        "username": username,
+        "locations": locations,
+        "options": scout_options,
+    }
+
+    logger.debug(f"[scout] POST /v2/scout - {len(coordinates)} location(s)")
+    response = await client.post("/v2/scout", json=payload)
 
     return response
 
 
-async def scout_single(client: APIClient, lat: float, lon: float) -> Any:
+async def scout_single(
+    client: APIClient,
+    lat: float,
+    lon: float,
+    username: str = "LazyIVQueue",
+) -> Any:
     """
-    Scout a single coordinate.
+    Scout a single coordinate using v2 API.
 
     Args:
         client: APIClient instance
         lat: Latitude
         lon: Longitude
+        username: Username to identify the scout request source
 
     Returns:
         API response
     """
-    return await scout_coordinates(client, [(lat, lon)])
+    return await scout_v2(client, [(lat, lon)], username=username)
 
 
 async def get_scout_queue(client: APIClient) -> Any:
     """
-    GET /scout/queue - Get current scout queue length.
+    GET /v2/scout/queue - Get current scout queue status.
 
     Args:
         client: APIClient instance
@@ -53,14 +82,14 @@ async def get_scout_queue(client: APIClient) -> Any:
     Returns:
         Queue status response
     """
-    logger.debug("[scout] Getting queue status")
-    response = await client.get("/scout/queue")
+    logger.debug("[scout] GET /v2/scout/queue")
+    response = await client.get("/v2/scout/queue")
     return response
 
 
 async def clear_scout_queue(client: APIClient) -> Any:
     """
-    GET /scout/clear - Clear the scout queue.
+    GET /v2/scout/clear - Clear the scout queue.
 
     Args:
         client: APIClient instance
@@ -68,6 +97,6 @@ async def clear_scout_queue(client: APIClient) -> Any:
     Returns:
         API response
     """
-    logger.debug("[scout] Clearing queue")
-    response = await client.get("/scout/clear")
+    logger.debug("[scout] GET /v2/scout/clear")
+    response = await client.get("/v2/scout/clear")
     return response
