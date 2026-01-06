@@ -24,7 +24,7 @@ data/*
 logs/
 LazyIVQueue/config/config.json
 docker-compose.yml
-
+LazyIVQueue/raw_parser.py
 # Database rubbish
 database/
 redis-data/
