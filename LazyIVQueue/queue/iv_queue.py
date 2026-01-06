@@ -355,3 +355,38 @@ class IVQueueManager:
             logger.debug(f"Cleaned up {removed_count} expired queue entries")
 
         return removed_count
+
+    async def cleanup_timed_out_scouts(self) -> int:
+        """
+        Remove entries that timed out waiting for IV data.
+
+        Any entry with scout_started_at that exceeds timeout_iv is removed.
+        This covers both stuck scouts and scouts waiting for IV data.
+
+        Uses AppConfig.timeout_iv to determine timeout threshold.
+
+        Returns:
+            Number of entries removed
+        """
+        current_time = time.time()
+        timeout_threshold = AppConfig.timeout_iv
+        removed_count = 0
+
+        async with self._queue_lock:
+            for key, entry in list(self._entries.items()):
+                # Check if scout started and exceeded timeout
+                if entry.scout_started_at:
+                    elapsed = current_time - entry.scout_started_at
+                    if elapsed > timeout_threshold:
+                        logger.warning(
+                            f"[x] Scout timeout: Pokemon {entry.pokemon_display} in {entry.area} "
+                            f"[encounter_id: {entry.encounter_id}] - no IV after {int(elapsed)}s"
+                        )
+                        entry.is_removed = True
+                        del self._entries[key]
+                        removed_count += 1
+
+        if removed_count > 0:
+            logger.info(f"Cleaned up {removed_count} timed out scout entries")
+
+        return removed_count

@@ -76,6 +76,7 @@ log_file = get_env_var("LOG_FILE", "FALSE").upper() == "TRUE"
 # Format: ["1", "3:0", "10:0"] where "1" = pokemon_id 1 any form, "3:0" = pokemon_id 3 form 0
 # Lower index = higher priority (first item is highest priority)
 ivlist: List[str] = config.get("ivlist", [])
+timeout_iv: int = config.get("scout", {}).get("timeout_iv", 180)
 
 def parse_ivlist(raw_list: List[str]) -> Dict[str, int]:
     """

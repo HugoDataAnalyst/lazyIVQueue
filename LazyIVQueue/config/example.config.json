@@ -5,6 +5,7 @@
         "refresh_cache_seconds": 1800
     },
     "scout": {
-        "concurrency": 5
+        "concurrency": 5,
+        "timeout_iv": 300
     }
 }
