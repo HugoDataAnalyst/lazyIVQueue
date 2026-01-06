@@ -230,9 +230,9 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
 
     if removed:
         logger.info(
-            f"[-] Scouted: Pokemon {pokemon.pokemon_display} in {area} - "
+            f"[<] Match found: Pokemon {pokemon.pokemon_display} in {area} - "
             f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
-            f"({pokemon.iv_percent}%)"
+            f"({pokemon.iv_percent}%) [encounter_id: {pokemon.encounter_id}]"
         )
         # Log updated queue status
         queue.log_queue_status()

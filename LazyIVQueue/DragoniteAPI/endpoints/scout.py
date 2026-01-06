@@ -46,7 +46,8 @@ async def scout_v2(
     }
 
     logger.debug(f"[scout] POST /scout/v2 - {len(coordinates)} location(s)")
-    response = await client.post("/scout/v2", json=payload)
+    # Dragonite returns plain text response, not JSON
+    response = await client.post_text("/scout/v2", json=payload)
 
     return response
 

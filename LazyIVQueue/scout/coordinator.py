@@ -99,10 +99,11 @@ class ScoutCoordinator:
         try:
             logger.debug(
                 f"Sending scout request: Pokemon {entry.pokemon_display} "
-                f"at ({entry.lat:.6f}, {entry.lon:.6f}) in {entry.area}"
+                f"at ({entry.lat:.6f}, {entry.lon:.6f}) in {entry.area} "
+                f"[encounter_id: {entry.encounter_id}]"
             )
 
-            # Call Dragonite Scout API via endpoint
+            # Call Dragonite Scout API via endpoint (returns text response)
             response = await scout_single(self._client, entry.lat, entry.lon)
 
             self._total_scouts += 1
@@ -111,7 +112,10 @@ class ScoutCoordinator:
 
             logger.info(
                 f"[>] Scout sent: Pokemon {entry.pokemon_display} in {entry.area} "
-                f"at ({entry.lat:.6f}, {entry.lon:.6f})"
+                f"at ({entry.lat:.6f}, {entry.lon:.6f}) [encounter_id: {entry.encounter_id}]"
+            )
+            logger.debug(
+                f"Scout response: {response}"
             )
             logger.debug(
                 f"Scout stats: total={self._total_scouts}, success={self._successful_scouts}, "
@@ -121,7 +125,10 @@ class ScoutCoordinator:
         except Exception as e:
             self._total_scouts += 1
             self._failed_scouts += 1
-            logger.error(f"[!] Scout failed: Pokemon {entry.pokemon_display} - {e}")
+            logger.error(
+                f"[!] Scout failed: Pokemon {entry.pokemon_display} "
+                f"[encounter_id: {entry.encounter_id}] - {e}"
+            )
 
         finally:
             # Mark scout complete and release semaphore slot

@@ -133,6 +133,19 @@ class APIClient:
         ) as r:
             return await r.json(content_type=None)
 
+    async def post_text(self, path: str, json: Any = None) -> str:
+        """
+        POST a JSON body and return plain text response.
+        Useful for APIs that return text confirmations instead of JSON.
+        """
+        async with self.session.post(
+            self._url(path),
+            json=json,
+            headers=self._build_headers(),
+            auth=self._basic_auth(),
+        ) as r:
+            return await r.text()
+
     async def post_bytes(
         self,
         path: str,
