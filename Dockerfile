@@ -1,6 +1,6 @@
-FROM python:3.12-slim-buster
+FROM python:3.12-slim-bookworm
 
-WORKDIR /LazyIVQueue
+WORKDIR /app
 
 # Install the build dependencies
 RUN apt-get update \
@@ -8,8 +8,11 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies
-COPY . .
+COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
+# Copy application code
+COPY . .
+
 # Command to run the application
-CMD ["python", "lazyivqueue.py"]
+CMD ["python", "-m", "LazyIVQueue.lazyivqueue"]

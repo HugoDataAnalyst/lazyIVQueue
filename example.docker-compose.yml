@@ -1,12 +1,15 @@
 services:
-  lazyivqueue_app:
-    container_name: lazyivqueue_app
+  lazyivqueue:
+    container_name: lazyivqueue
     build: .
-    restart: always
+    restart: unless-stopped
     env_file:
-    - .env
+      - .env
+    volumes:
+      - ./LazyIVQueue/config:/app/LazyIVQueue/config
+    ports:
+      - "${LAZYIVQUEUE_PORT:-7070}:${LAZYIVQUEUE_PORT:-7070}"
 
 networks:
   default:
-    external:
-      name: lazyivqueue_network
+    name: lazyivqueue_network
