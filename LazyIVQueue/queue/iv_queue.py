@@ -80,6 +80,11 @@ class IVQueueManager:
         self._queue_lock: asyncio.Lock = asyncio.Lock()
         self._initialized: bool = False
 
+        # Stats counters
+        self._total_queued: int = 0
+        self._total_matches: int = 0
+        self._total_timeouts: int = 0
+
     @classmethod
     async def get_instance(cls) -> IVQueueManager:
         """Get or create singleton instance."""
@@ -119,6 +124,7 @@ class IVQueueManager:
             # Add to heap and lookup dict
             heapq.heappush(self._heap, entry)
             self._entries[key] = entry
+            self._total_queued += 1
 
             logger.debug(
                 f"Added to queue: {entry.pokemon_display} in {entry.area} "
@@ -162,7 +168,7 @@ class IVQueueManager:
 
             return None
 
-    def _remove_entry(self, key: str) -> Optional[QueueEntry]:
+    def _remove_entry(self, key: str, is_match: bool = True) -> Optional[QueueEntry]:
         """Remove entry by key (internal, must hold lock)."""
         if key not in self._entries:
             return None
@@ -170,6 +176,9 @@ class IVQueueManager:
         entry = self._entries.pop(key)
         # Mark as removed for lazy deletion from heap
         entry.is_removed = True
+
+        if is_match:
+            self._total_matches += 1
 
         logger.debug(
             f"Removed from queue: {entry.pokemon_display} "
@@ -267,11 +276,20 @@ class IVQueueManager:
 
     async def get_stats(self) -> Dict[str, Any]:
         """Return queue statistics."""
+        # Count entries waiting for IV match
+        waiting_for_iv = sum(1 for e in self._entries.values() if e.was_scouted and not e.is_removed)
+        pending = len(self._entries) - waiting_for_iv
+
         return {
             "queue_size": len(self._entries),
+            "pending": pending,
+            "awaiting_iv": waiting_for_iv,
             "active_scouts": self._active_scouts,
             "max_concurrency": AppConfig.concurrency_scout,
             "available_slots": self.get_available_slots(),
+            "total_queued": self._total_queued,
+            "total_matches": self._total_matches,
+            "total_timeouts": self._total_timeouts,
         }
 
     def get_next_entries_preview(self, count: int = 10) -> List[Dict[str, Any]]:
@@ -385,6 +403,7 @@ class IVQueueManager:
                         entry.is_removed = True
                         del self._entries[key]
                         removed_count += 1
+                        self._total_timeouts += 1
 
         if removed_count > 0:
             logger.info(f"Cleaned up {removed_count} timed out scout entries")
