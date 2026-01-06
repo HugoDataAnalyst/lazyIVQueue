@@ -38,6 +38,7 @@ class QueueEntry:
     # Tracking fields
     is_removed: bool = field(compare=False, default=False)
     is_scouting: bool = field(compare=False, default=False)
+    was_scouted: bool = field(compare=False, default=False)  # True after scout sent, waiting for IV
     scout_started_at: Optional[float] = field(compare=False, default=None)
 
     @property
@@ -204,8 +205,8 @@ class IVQueueManager:
                 entry = self._heap[0]
                 key = entry.unique_key
 
-                # Skip if already removed or being scouted
-                if key not in self._entries or entry.is_removed or entry.is_scouting:
+                # Skip if already removed, being scouted, or already scouted (waiting for IV)
+                if key not in self._entries or entry.is_removed or entry.is_scouting or entry.was_scouted:
                     heapq.heappop(self._heap)
                     continue
 
@@ -229,23 +230,27 @@ class IVQueueManager:
         """
         Mark a scout operation as complete and release semaphore slot.
 
+        Note: This does NOT remove the entry from the queue. The entry stays
+        in the queue until a matching IV webhook arrives (remove_by_match).
+        This ensures we can properly match returning IV data.
+
         Args:
             entry: The queue entry that was being scouted
             success: Whether the scout was successful
         """
         async with self._queue_lock:
-            key = entry.unique_key
-            if key in self._entries:
-                del self._entries[key]
-
+            # Mark entry as no longer actively scouting, but keep it in queue
+            # for matching with incoming IV webhooks
+            entry.is_scouting = False
+            entry.was_scouted = True  # Mark as scouted, waiting for IV match
             self._active_scouts = max(0, self._active_scouts - 1)
 
         self._scout_semaphore.release()
 
-        status = "success" if success else "failed"
+        status = "sent" if success else "failed"
         logger.debug(
             f"Scout {status} for {entry.pokemon_display}, "
-            f"active scouts: {self._active_scouts}"
+            f"active scouts: {self._active_scouts}, waiting for IV match"
         )
 
     def get_active_scouts_count(self) -> int:
@@ -279,10 +284,10 @@ class IVQueueManager:
         Returns:
             List of entry info dicts in priority order
         """
-        # Build a sorted list of valid entries
+        # Build a sorted list of valid entries (not yet scouted)
         valid_entries = []
         for entry in self._entries.values():
-            if not entry.is_removed and not entry.is_scouting:
+            if not entry.is_removed and not entry.is_scouting and not entry.was_scouted:
                 valid_entries.append(entry)
 
         # Sort by priority, then timestamp
@@ -308,8 +313,13 @@ class IVQueueManager:
         active = self._active_scouts
         available = self.get_available_slots()
 
+        # Count entries waiting for IV match
+        waiting_for_iv = sum(1 for e in self._entries.values() if e.was_scouted and not e.is_removed)
+        pending = queue_size - waiting_for_iv
+
         logger.info(
-            f"IVQueue Status: {queue_size} queued | "
+            f"IVQueue Status: {pending} pending | "
+            f"{waiting_for_iv} awaiting IV | "
             f"{active} active scouts | "
             f"{available} slots available"
         )
