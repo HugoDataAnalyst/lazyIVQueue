@@ -91,7 +91,7 @@ class ScoutCoordinator:
         """
         Execute a single scout operation.
 
-        Calls Dragonite API: POST /scout with [[lat, lon]]
+        Calls Dragonite API v2: POST /v2/scout with {username, locations, options}
         """
         queue = await IVQueueManager.get_instance()
         success = False
