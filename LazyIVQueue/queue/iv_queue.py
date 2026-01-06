@@ -339,7 +339,8 @@ class IVQueueManager:
             f"IVQueue Status: {pending} pending | "
             f"{waiting_for_iv} awaiting IV | "
             f"{active} active scouts | "
-            f"{available} slots available"
+            f"{available} slots available | "
+            f"Session: {self._total_queued} queued / {self._total_matches} matches / {self._total_timeouts} timeouts"
         )
 
         if queue_size > 0:
