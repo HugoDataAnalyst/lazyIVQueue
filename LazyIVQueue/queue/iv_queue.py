@@ -126,13 +126,17 @@ class IVQueueManager:
             return True
 
     async def remove_by_match(
-        self, spawnpoint_id: Optional[str], lat: float, lon: float
+        self, encounter_id: Optional[str], lat: float, lon: float
     ) -> Optional[QueueEntry]:
         """
-        Remove entry matching by spawnpoint_id or coordinates (70m proximity).
+        Remove entry matching by encounter_id (exact) or coordinates (70m proximity).
+
+        Matching order:
+        1. Exact encounter_id match (if provided)
+        2. Coordinate proximity match (70m threshold)
 
         Args:
-            spawnpoint_id: Spawnpoint ID to match (exact match)
+            encounter_id: Encounter ID to match (exact match, preferred)
             lat: Latitude for proximity match
             lon: Longitude for proximity match
 
@@ -140,13 +144,13 @@ class IVQueueManager:
             Removed entry if found, None otherwise
         """
         async with self._queue_lock:
-            # First try exact spawnpoint match
-            if spawnpoint_id:
+            # First try exact encounter_id match
+            if encounter_id:
                 for key, entry in list(self._entries.items()):
-                    if entry.spawnpoint_id == spawnpoint_id and not entry.is_removed:
+                    if entry.encounter_id == encounter_id and not entry.is_removed:
                         return self._remove_entry(key)
 
-            # Then try coordinate proximity match
+            # Then try coordinate proximity match (fallback)
             for key, entry in list(self._entries.items()):
                 if entry.is_removed:
                     continue
@@ -293,7 +297,7 @@ class IVQueueManager:
                 "priority": entry.priority,
                 "lat": round(entry.lat, 6),
                 "lon": round(entry.lon, 6),
-                "spawnpoint": entry.spawnpoint_id,
+                "encounter_id": entry.encounter_id,
             })
 
         return preview

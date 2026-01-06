@@ -205,7 +205,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
     1. Pokemon HAS IV data - already ensured by caller
     2. Pokemon matches ivlist
     3. Coordinates inside Koji geofences
-    4. spawnpoint_id OR coordinates match entry in IV queue (70m proximity)
+    4. encounter_id OR coordinates match entry in IV queue (70m proximity)
 
     If all pass: Log success, remove from queue
     """
@@ -220,10 +220,10 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
     if not area:
         return
 
-    # Check 4: Match against queue
+    # Check 4: Match against queue (encounter_id first, then proximity)
     queue = await IVQueueManager.get_instance()
     removed = await queue.remove_by_match(
-        spawnpoint_id=pokemon.spawnpoint_id,
+        encounter_id=pokemon.encounter_id,
         lat=pokemon.latitude,
         lon=pokemon.longitude,
     )
