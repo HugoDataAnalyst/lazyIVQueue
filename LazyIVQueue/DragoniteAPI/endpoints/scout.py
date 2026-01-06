@@ -45,8 +45,8 @@ async def scout_v2(
         "options": scout_options,
     }
 
-    logger.debug(f"[scout] POST /v2/scout - {len(coordinates)} location(s)")
-    response = await client.post("/v2/scout", json=payload)
+    logger.debug(f"[scout] POST /scout/v2 - {len(coordinates)} location(s)")
+    response = await client.post("/scout/v2", json=payload)
 
     return response
 
@@ -82,8 +82,8 @@ async def get_scout_queue(client: APIClient) -> Any:
     Returns:
         Queue status response
     """
-    logger.debug("[scout] GET /v2/scout/queue")
-    response = await client.get("/v2/scout/queue")
+    logger.debug("[scout] GET /scout/v2/queue")
+    response = await client.get("/scout/v2/queue")
     return response
 
 
@@ -97,6 +97,6 @@ async def clear_scout_queue(client: APIClient) -> Any:
     Returns:
         API response
     """
-    logger.debug("[scout] GET /v2/scout/clear")
-    response = await client.get("/v2/scout/clear")
+    logger.debug("[scout] GET /scout/v2/clear")
+    response = await client.get("/scout/v2/clear")
     return response
