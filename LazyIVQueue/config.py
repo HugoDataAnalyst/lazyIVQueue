@@ -63,6 +63,9 @@ koji_geofence_api_url = f"http://{koji_ip}:{koji_port}/api/v1/geofence/feature-c
 koji_url_base = get_env_var("KOJI_URL")
 koji_url = f"{koji_url_base}/api/v1/geofence/feature-collection/{koji_project_name}" if koji_url_base else None
 
+# Filter with Koji geofences (if False, only ivlist filtering is applied)
+filter_with_koji: bool = get_env_var("FILTER_WITH_KOJI", "TRUE").upper() == "TRUE"
+
 # Extract geofence settings
 geofence_expire_cache_seconds = config.get("geofences", {}).get("expire_cache_seconds", 3600)
 geofence_refresh_cache_seconds = config.get("geofences", {}).get("refresh_cache_seconds", 3500)

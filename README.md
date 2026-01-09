@@ -30,6 +30,7 @@ cp LazyIVQueue/config/example.config.json LazyIVQueue/config/config.json
 ### .env
 - `LAZYIVQUEUE_HOST` / `LAZYIVQUEUE_PORT` - Server bind address
 - `DRAGONITE_API_BASE_URL` - Dragonite Scout API endpoint (e.g., `http://127.0.0.1:7272`)
+- `FILTER_WITH_KOJI` - Enable geofence filtering (default: `TRUE`). Set to `FALSE` to only filter by ivlist
 - `KOJI_URL` - Koji base URL for geofences - still requires `KOJI_PROJECT_NAME` - The geofences present will be the ones that it works to LazyIVQueue
 - `ALLOWED_IPS` - Comma-separated IPs allowed to POST webhooks
 - `HEADERS` - Header auth (format: `HeaderName: Value`) Example in golbat to use it:

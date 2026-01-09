@@ -153,7 +153,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
     Checks:
     1. Pokemon has NO IV data (individual_attack is None) - already ensured by caller
     2. Pokemon matches ivlist (by pokemon_id:form or pokemon_id)
-    3. Coordinates inside Koji geofences
+    3. Coordinates inside Koji geofences (if FILTER_WITH_KOJI is enabled)
 
     If all pass: Add to IV queue and trigger scout
     """
@@ -163,15 +163,17 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
         logger.debug(f"Pokemon {pokemon.pokemon_display} not in ivlist, skipping")
         return
 
-    # Check 3: Geofence check
-    geofence_manager = await KojiGeofenceManager.get_instance()
-    area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
-    if not area:
-        logger.debug(
-            f"Pokemon {pokemon.pokemon_display} at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
-            f"outside geofences, skipping"
-        )
-        return
+    # Check 3: Geofence check (optional based on config)
+    area = "global"
+    if AppConfig.filter_with_koji:
+        geofence_manager = await KojiGeofenceManager.get_instance()
+        area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
+        if not area:
+            logger.debug(
+                f"Pokemon {pokemon.pokemon_display} at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
+                f"outside geofences, skipping"
+            )
+            return
 
     # All checks passed - add to queue
     queue = await IVQueueManager.get_instance()
@@ -204,7 +206,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
     Checks:
     1. Pokemon HAS IV data - already ensured by caller
     2. Pokemon matches ivlist
-    3. Coordinates inside Koji geofences
+    3. Coordinates inside Koji geofences (if FILTER_WITH_KOJI is enabled)
     4. encounter_id OR coordinates match entry in IV queue (70m proximity)
 
     If all pass: Log success, remove from queue
@@ -214,11 +216,13 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
     if not matches:
         return
 
-    # Check 3: Geofence check
-    geofence_manager = await KojiGeofenceManager.get_instance()
-    area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
-    if not area:
-        return
+    # Check 3: Geofence check (optional based on config)
+    area = "global"
+    if AppConfig.filter_with_koji:
+        geofence_manager = await KojiGeofenceManager.get_instance()
+        area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
+        if not area:
+            return
 
     # Check 4: Match against queue (encounter_id first, then proximity)
     queue = await IVQueueManager.get_instance()
