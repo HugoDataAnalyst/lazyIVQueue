@@ -233,10 +233,18 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
     )
 
     if removed:
-        logger.info(
-            f"[<] Match found: Pokemon {pokemon.pokemon_display} in {area} - "
-            f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
-            f"({pokemon.iv_percent}%) [encounter_id: {pokemon.encounter_id}]"
-        )
+        # Check if this was scouted by us or received IV before we scouted
+        if removed.was_scouted or removed.is_scouting:
+            logger.info(
+                f"[<] Match found: Pokemon {pokemon.pokemon_display} in {area} - "
+                f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
+                f"({pokemon.iv_percent}%) [encounter_id: {pokemon.encounter_id}]"
+            )
+        else:
+            logger.info(
+                f"[<] Early IV: Pokemon {pokemon.pokemon_display} in {area} - "
+                f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
+                f"({pokemon.iv_percent}%) [encounter_id: {pokemon.encounter_id}] (skipped scout)"
+            )
         # Log updated queue status
         queue.log_queue_status()
