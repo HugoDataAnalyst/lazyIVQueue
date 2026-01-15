@@ -211,7 +211,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
 
     # Skip if not in any list
     if priority is None:
-        logger.debug(f"Pokemon {pokemon.pokemon_display} not in celllist or ivlist, skipping")
+        logger.trace(f"Pokemon {pokemon.pokemon_display} not in celllist or ivlist, skipping")
         return
 
     # Check 3: Geofence check (optional based on config)
