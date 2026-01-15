@@ -278,25 +278,28 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
         if not area:
             return
 
-    # Check 4: Match against queue based on seen_type
+    # Check 4: Match against removal
     queue = await IVQueueManager.get_instance()
     removed: Optional[QueueEntry] = None
 
-    if pokemon.seen_type == "nearby_cell":
+    source_tag = f"[{pokemon.seen_type} [encounter_id: {pokemon.encounter_id}]"
+    removed = await queue.remove_by_match(
+        encounter_id=pokemon.encounter_id,
+        lat=pokemon.latitude,
+        lon=pokemon.longitude,
+    )
+    if not removed:
         # For nearby_cell: match by s2_cell_id + pokemon_id
         s2_cell_id = get_s2_cell_id(pokemon.latitude, pokemon.longitude)
+        source_tag = f"[{pokemon.seen_type} Cell:{s2_cell_id}]"
         removed = await queue.remove_by_cell_match(
             pokemon_id=pokemon.pokemon_id,
             form=pokemon.form,
             s2_cell_id=s2_cell_id,
         )
-    else:
-        # For wild/nearby_stop: match by encounter_id or proximity
-        removed = await queue.remove_by_match(
-            encounter_id=pokemon.encounter_id,
-            lat=pokemon.latitude,
-            lon=pokemon.longitude,
-        )
+        # If we successfully busted a ghost, update the tag so logs are clear
+        if removed:
+             source_tag = f"[{pokemon.seen_type} matched Cell:{s2_cell_id}]"
 
     if removed:
         # Check if this was scouted by us or received IV before we scouted
@@ -304,6 +307,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
             queue.record_match(pokemon.pokemon_display, removed.seen_type)
             logger.info(
                 f"[<] Match found: Pokemon {pokemon.pokemon_display} in {area} - "
+                f"Seen_type: {source_tag}"
                 f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
                 f"({pokemon.iv_percent}%) [encounter_id: {pokemon.encounter_id}]"
             )

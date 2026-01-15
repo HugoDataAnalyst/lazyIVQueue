@@ -146,7 +146,7 @@ class IVQueueManager:
 
             logger.debug(
                 f"Added to queue: {entry.pokemon_display} in {entry.area} "
-                f"(priority {entry.priority}, queue size: {len(self._entries)})"
+                f"[{entry.seen_type}] (priority {entry.priority}, queue size: {len(self._entries)})"
             )
             return True
 

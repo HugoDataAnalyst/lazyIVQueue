@@ -20,11 +20,14 @@ def get_s2_cell_id(lat: float, lon: float, level: int = 15) -> str:
         S2 cell ID as string (hex representation)
     """
     logger.debug(f"Calculating S2 Cell ID for lat={lat}, lon={lon} at level={level}")
-    latlng = s2sphere.LatLng.from_degrees(lat, lon)
-    cell_id = s2sphere.CellId.from_lat_lng(latlng).parent(level)
-    token = cell_id.to_token()
-    logger.debug(f"S2 Calculation Result: {token} (ID: {cell_id.id()})")
-    return token
+    try:
+        latlng = s2sphere.LatLng.from_degrees(lat, lon)
+        cell_id = s2sphere.CellId.from_lat_lng(latlng).parent(level)
+        token = cell_id.to_token()
+        logger.debug(f"S2 Calculation Result: {token} (ID: {cell_id.id()})")
+        return token
+    except Exception as e:
+        logger.error(f"Failed to calculate S2 Cell ID: {e}")
 
 
 def generate_honeycomb_coords(
