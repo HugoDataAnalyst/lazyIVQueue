@@ -89,20 +89,54 @@ def generate_honeycomb_coords(
         logger.debug(f"Honeycomb Point [{name}]: {lat:.6f}, {lon:.6f}")
 
     coords = list(points_map.values())
-    """
-    coords = [
-        # Center point (always first for scout)
-        (center_lat, center_lon),
-        # Top row (offset up by row_height, left and right by half_spacing)
-        offset_coords(center_lat, center_lon, -half_spacing, row_height),   # top1
-        offset_coords(center_lat, center_lon, half_spacing, row_height),    # top2
-        # Middle row (left and right by full spacing)
-        offset_coords(center_lat, center_lon, -spacing_m, 0),               # mid1
-        offset_coords(center_lat, center_lon, spacing_m, 0),                # mid2
-        # Bottom row (offset down by row_height, left and right by half_spacing)
-        offset_coords(center_lat, center_lon, -half_spacing, -row_height),  # bot1
-        offset_coords(center_lat, center_lon, half_spacing, -row_height),   # bot2
-    ]
-    """
     logger.info(f"Generated {len(coords)} scout points for S2 cell")
     return coords
+
+def generate_9_point_grid(cell_id_int: int) -> List[Tuple[float, float]]:
+    """
+    Generates a 3x3 grid (9 points) covering the specific S2 Cell.
+    This dynamically adapts to the cell's size (handling Earth's curvature).
+    """
+    try:
+        # 1. Get Cell Geometry
+        cell_id = s2sphere.CellId(cell_id_int)
+        cell = s2sphere.Cell(cell_id)
+        rect = cell.get_rect_bound()
+
+        min_lat = rect.lat_lo().degrees
+        max_lat = rect.lat_hi().degrees
+        min_lng = rect.lng_lo().degrees
+        max_lng = rect.lng_hi().degrees
+
+        # Log the actual dimensions of this specific cell to ensure S2 logic is valid
+        height_deg = max_lat - min_lat
+        width_deg = max_lng - min_lng
+        logger.debug(f"Generating 9-point S2 grid for Cell {cell_id_int} (H: {height_deg:.5f}°, W: {width_deg:.5f}°)")
+
+        # 2. Calculate step size (Total Dimension / 3)
+        lat_step = height_deg / 3.0
+        lng_step = width_deg / 3.0
+
+        coordinates = []
+        point_count = 1
+
+        # 3. Generate 9 centers
+        # We iterate rows (i) and columns (j)
+        for i in range(3):
+            for j in range(3):
+                # Center of sub-block = Start + (Index * Step) + (Half Step)
+                lat = min_lat + (i * lat_step) + (0.5 * lat_step)
+                lng = min_lng + (j * lng_step) + (0.5 * lng_step)
+
+                coordinates.append((lat, lng))
+
+                # Log individual points with grid position context
+                logger.debug(f"S2 Grid Point [{point_count}/9] (Row {i}, Col {j}): {lat:.6f}, {lng:.6f}")
+                point_count += 1
+
+        logger.info(f"Generated {len(coordinates)} scout points for S2 Cell {cell_id_int}")
+        return coordinates
+
+    except Exception as e:
+        logger.error(f"Failed to generate S2 grid for cell {cell_id_int}: {e}")
+        return []
