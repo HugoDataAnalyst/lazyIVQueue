@@ -92,14 +92,18 @@ def generate_honeycomb_coords(
     logger.info(f"Generated {len(coords)} scout points for S2 cell")
     return coords
 
-def generate_9_point_grid(cell_id_int: int) -> List[Tuple[float, float]]:
+def generate_9_point_grid(cell_id_input: str | int) -> List[Tuple[float, float]]:
     """
     Generates a 3x3 grid (9 points) covering the specific S2 Cell.
     This dynamically adapts to the cell's size (handling Earth's curvature).
     """
     try:
         # 1. Get Cell Geometry
-        cell_id = s2sphere.CellId(cell_id_int)
+        if isinstance(cell_id_input, str):
+            cell_id = s2sphere.CellId.from_token(cell_id_input)
+        else:
+            cell_id = s2sphere.CellId(cell_id_input)
+
         cell = s2sphere.Cell(cell_id)
         rect = cell.get_rect_bound()
 
@@ -111,7 +115,7 @@ def generate_9_point_grid(cell_id_int: int) -> List[Tuple[float, float]]:
         # Log the actual dimensions of this specific cell to ensure S2 logic is valid
         height_deg = max_lat - min_lat
         width_deg = max_lng - min_lng
-        logger.debug(f"Generating 9-point S2 grid for Cell {cell_id_int} (H: {height_deg:.5f}°, W: {width_deg:.5f}°)")
+        logger.debug(f"Generating 9-point S2 grid for Cell {cell_id_input} (H: {height_deg:.5f}°, W: {width_deg:.5f}°)")
 
         # 2. Calculate step size (Total Dimension / 3)
         lat_step = height_deg / 3.0
@@ -134,9 +138,9 @@ def generate_9_point_grid(cell_id_int: int) -> List[Tuple[float, float]]:
                 logger.debug(f"S2 Grid Point [{point_count}/9] (Row {i}, Col {j}): {lat:.6f}, {lng:.6f}")
                 point_count += 1
 
-        logger.info(f"Generated {len(coordinates)} scout points for S2 Cell {cell_id_int}")
+        logger.info(f"Generated {len(coordinates)} scout points for S2 Cell {cell_id_input}")
         return coordinates
 
     except Exception as e:
-        logger.error(f"Failed to generate S2 grid for cell {cell_id_int}: {e}")
+        logger.error(f"Failed to generate S2 grid for cell {cell_id_input}: {e}")
         return []
