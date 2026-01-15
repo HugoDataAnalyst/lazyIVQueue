@@ -307,7 +307,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
             queue.record_match(pokemon.pokemon_display, removed.seen_type)
             logger.info(
                 f"[<] Match found: Pokemon {pokemon.pokemon_display} in {area} - "
-                f"Seen_type: {source_tag}"
+                f"Seen Type: {source_tag} "
                 f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
                 f"({pokemon.iv_percent}%) [encounter_id: {pokemon.encounter_id}]"
             )
@@ -315,6 +315,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
             queue.record_early_iv(pokemon.pokemon_display, removed.seen_type)
             logger.info(
                 f"[<] Early IV: Pokemon {pokemon.pokemon_display} in {area} - "
+                f"Seen Type: {source_tag} "
                 f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
                 f"({pokemon.iv_percent}%) [encounter_id: {pokemon.encounter_id}] (skipped scout)"
             )
