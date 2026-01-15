@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Tuple
 from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.utils.koji_geofences import KojiGeofenceManager
 from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
+from LazyIVQueue.utils.s2_utils import get_s2_cell_id
 from LazyIVQueue.queue.iv_queue import IVQueueManager, QueueEntry
 import LazyIVQueue.config as AppConfig
 
@@ -25,6 +26,7 @@ class PokemonData:
     individual_stamina: Optional[int]
     encounter_id: Optional[str]
     disappear_time: Optional[int]
+    seen_type: str  # "wild", "nearby_stop", or "nearby_cell"
 
     @property
     def has_iv(self) -> bool:
@@ -104,6 +106,7 @@ def parse_pokemon_data(raw: Dict[str, Any]) -> Optional[PokemonData]:
             individual_stamina=raw.get("individual_stamina"),
             encounter_id=raw.get("encounter_id"),
             disappear_time=raw.get("disappear_time"),
+            seen_type=raw.get("seen_type", "wild"),
         )
     except (ValueError, TypeError) as e:
         logger.warning(f"Error parsing Pokemon data: {e}")
@@ -131,6 +134,37 @@ def is_in_ivlist(pokemon: PokemonData) -> Tuple[bool, Optional[int]]:
     return False, None
 
 
+def is_in_celllist(pokemon: PokemonData) -> Tuple[bool, Optional[int]]:
+    """
+    Check if Pokemon matches celllist (for nearby_cell scouting).
+
+    Returns:
+        (matches: bool, priority: Optional[int])
+        Priority is offset by -1000 to ensure celllist has higher priority than ivlist.
+    """
+    # First check exact match (pokemon_id:form)
+    if pokemon.form is not None:
+        key = f"{pokemon.pokemon_id}:{pokemon.form}"
+        if key in AppConfig.celllist_parsed:
+            # Offset by -1000 so celllist entries are always higher priority
+            return True, AppConfig.celllist_parsed[key] - 1000
+
+    # Then check any-form match (just pokemon_id)
+    key = str(pokemon.pokemon_id)
+    if key in AppConfig.celllist_parsed:
+        if AppConfig.celllist_parsed[key] is not None:
+            return True, AppConfig.celllist_parsed[key] - 1000
+
+    return False, None
+
+
+def is_in_any_list(pokemon: PokemonData) -> bool:
+    """Check if Pokemon matches either ivlist or celllist."""
+    matches_iv, _ = is_in_ivlist(pokemon)
+    matches_cell, _ = is_in_celllist(pokemon)
+    return matches_iv or matches_cell
+
+
 async def process_pokemon_webhook(raw_data: Dict[str, Any]) -> None:
     """
     Main entry point for processing Pokemon webhooks.
@@ -152,15 +186,32 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
 
     Checks:
     1. Pokemon has NO IV data (individual_attack is None) - already ensured by caller
-    2. Pokemon matches ivlist (by pokemon_id:form or pokemon_id)
+    2. Pokemon matches celllist (for nearby_cell) OR ivlist
     3. Coordinates inside Koji geofences (if FILTER_WITH_KOJI is enabled)
 
     If all pass: Add to IV queue and trigger scout
     """
-    # Check 2: Match ivlist
-    matches, priority = is_in_ivlist(pokemon)
-    if not matches or priority is None:
-        logger.debug(f"Pokemon {pokemon.pokemon_display} not in ivlist, skipping")
+    # Check 2: Determine priority from celllist or ivlist
+    priority: Optional[int] = None
+    seen_type = pokemon.seen_type
+    s2_cell_id: Optional[str] = None
+
+    # For nearby_cell, check celllist first (higher priority)
+    if seen_type == "nearby_cell":
+        matches_cell, cell_priority = is_in_celllist(pokemon)
+        if matches_cell and cell_priority is not None:
+            priority = cell_priority
+            s2_cell_id = get_s2_cell_id(pokemon.latitude, pokemon.longitude)
+
+    # If not matched by celllist, check ivlist (for any seen_type)
+    if priority is None:
+        matches_iv, iv_priority = is_in_ivlist(pokemon)
+        if matches_iv and iv_priority is not None:
+            priority = iv_priority
+
+    # Skip if not in any list
+    if priority is None:
+        logger.debug(f"Pokemon {pokemon.pokemon_display} not in celllist or ivlist, skipping")
         return
 
     # Check 3: Geofence check (optional based on config)
@@ -187,13 +238,16 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
         priority=priority,
         encounter_id=pokemon.encounter_id,
         disappear_time=pokemon.disappear_time,
+        seen_type=seen_type,
+        s2_cell_id=s2_cell_id,
     )
 
     added = await queue.add(entry)
     if added:
+        list_type = "celllist" if s2_cell_id else "ivlist"
         logger.info(
             f"[+] Queued: Pokemon {pokemon.pokemon_display} in {area} "
-            f"(priority {priority})"
+            f"(priority {priority}, {list_type}, {seen_type})"
         )
         # Log queue status with next entries preview
         queue.log_queue_status()
@@ -205,15 +259,15 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
 
     Checks:
     1. Pokemon HAS IV data - already ensured by caller
-    2. Pokemon matches ivlist
+    2. Pokemon matches celllist or ivlist
     3. Coordinates inside Koji geofences (if FILTER_WITH_KOJI is enabled)
-    4. encounter_id OR coordinates match entry in IV queue (70m proximity)
+    4. For nearby_cell: Match by s2_cell_id + pokemon_id
+       For wild/nearby_stop: Match by encounter_id OR coordinates (70m proximity)
 
     If all pass: Log success, remove from queue
     """
-    # Check 2: Match ivlist (still need this to avoid processing unwanted Pokemon)
-    matches, _ = is_in_ivlist(pokemon)
-    if not matches:
+    # Check 2: Match celllist or ivlist (still need this to avoid processing unwanted Pokemon)
+    if not is_in_any_list(pokemon):
         return
 
     # Check 3: Geofence check (optional based on config)
@@ -224,25 +278,37 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
         if not area:
             return
 
-    # Check 4: Match against queue (encounter_id first, then proximity)
+    # Check 4: Match against queue based on seen_type
     queue = await IVQueueManager.get_instance()
-    removed = await queue.remove_by_match(
-        encounter_id=pokemon.encounter_id,
-        lat=pokemon.latitude,
-        lon=pokemon.longitude,
-    )
+    removed: Optional[QueueEntry] = None
+
+    if pokemon.seen_type == "nearby_cell":
+        # For nearby_cell: match by s2_cell_id + pokemon_id
+        s2_cell_id = get_s2_cell_id(pokemon.latitude, pokemon.longitude)
+        removed = await queue.remove_by_cell_match(
+            pokemon_id=pokemon.pokemon_id,
+            form=pokemon.form,
+            s2_cell_id=s2_cell_id,
+        )
+    else:
+        # For wild/nearby_stop: match by encounter_id or proximity
+        removed = await queue.remove_by_match(
+            encounter_id=pokemon.encounter_id,
+            lat=pokemon.latitude,
+            lon=pokemon.longitude,
+        )
 
     if removed:
         # Check if this was scouted by us or received IV before we scouted
         if removed.was_scouted or removed.is_scouting:
-            queue.record_match(pokemon.pokemon_display)
+            queue.record_match(pokemon.pokemon_display, removed.seen_type)
             logger.info(
                 f"[<] Match found: Pokemon {pokemon.pokemon_display} in {area} - "
                 f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
                 f"({pokemon.iv_percent}%) [encounter_id: {pokemon.encounter_id}]"
             )
         else:
-            queue.record_early_iv(pokemon.pokemon_display)
+            queue.record_early_iv(pokemon.pokemon_display, removed.seen_type)
             logger.info(
                 f"[<] Early IV: Pokemon {pokemon.pokemon_display} in {area} - "
                 f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
