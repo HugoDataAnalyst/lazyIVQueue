@@ -5,7 +5,7 @@ import asyncio
 from typing import Optional, Dict, Any
 
 from LazyIVQueue.utils.logger import logger
-from LazyIVQueue.utils.s2_utils import generate_9_point_grid, generate_honeycomb_coords, get_s2_cell_id
+from LazyIVQueue.utils.s2_utils import generate_9_point_grid
 from LazyIVQueue.queue.iv_queue import IVQueueManager, QueueEntry
 from LazyIVQueue.DragoniteAPI import get_dragonite_client
 from LazyIVQueue.DragoniteAPI.utils.http_api import APIClient
@@ -101,14 +101,9 @@ class ScoutCoordinator:
         success = False
 
         try:
-            # Determine coordinates based on seen_type
-            if entry.seen_type == "nearby_cell":
-                # Generate s2cell id
-                s2_cell_int = get_s2_cell_id(entry.lat, entry.lon, level=15)
-                # Generate 9x9 grid
-                coordinates = generate_9_point_grid(s2_cell_int)
-
-                # coordinates = generate_honeycomb_coords(entry.lat, entry.lon)
+            # Determine coordinates based on s2_cell_id
+            if entry.s2_cell_id:
+                coordinates = generate_9_point_grid(entry.s2_cell_id)
                 coord_count = len(coordinates)
                 logger.debug(
                     f"Sending S2 Grid scout request: Pokemon {entry.pokemon_display} "
@@ -130,12 +125,12 @@ class ScoutCoordinator:
             success = True
             self._successful_scouts += 1
 
-            # Log based on seen_type
-            if entry.seen_type == "nearby_cell":
+            # Log based on scout type (celllist vs ivlist)
+            if entry.s2_cell_id:
                 logger.info(
                     f"[>] Scout sent: Pokemon {entry.pokemon_display} in {entry.area} "
                     f"at ({entry.lat:.6f}, {entry.lon:.6f}) [s2_cell: {entry.s2_cell_id}] "
-                    f"(honeycomb: {coord_count} coords)"
+                    f"(9-point grid: {coord_count} coords)"
                 )
             else:
                 logger.info(
