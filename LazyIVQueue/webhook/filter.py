@@ -186,7 +186,8 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
 
     Checks:
     1. Pokemon has NO IV data (individual_attack is None) - already ensured by caller
-    2. Pokemon matches celllist (for nearby_cell) OR ivlist
+    2. For nearby_cell: ONLY check celllist (ivlist ignored)
+       For wild/nearby_stop: ONLY check ivlist
     3. Coordinates inside Koji geofences (if FILTER_WITH_KOJI is enabled)
 
     If all pass: Add to IV queue and trigger scout
@@ -196,23 +197,23 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
     seen_type = pokemon.seen_type
     s2_cell_id: Optional[str] = None
 
-    # For nearby_cell, check celllist first (higher priority)
     if seen_type == "nearby_cell":
         matches_cell, cell_priority = is_in_celllist(pokemon)
         if matches_cell and cell_priority is not None:
             priority = cell_priority
             s2_cell_id = get_s2_cell_id(pokemon.latitude, pokemon.longitude)
-
-    # If not matched by celllist, check ivlist (for any seen_type)
-    if priority is None:
+        else:
+            # Not in celllist = skip entirely (don't fall through to ivlist)
+            logger.trace(f"Pokemon {pokemon.pokemon_display} nearby_cell not in celllist, skipping")
+            return
+    else:
+        # wild/nearby_stop: ONLY check ivlist
         matches_iv, iv_priority = is_in_ivlist(pokemon)
         if matches_iv and iv_priority is not None:
             priority = iv_priority
-
-    # Skip if not in any list
-    if priority is None:
-        logger.trace(f"Pokemon {pokemon.pokemon_display} not in celllist or ivlist, skipping")
-        return
+        else:
+            logger.trace(f"Pokemon {pokemon.pokemon_display} not in ivlist, skipping")
+            return
 
     # Check 3: Geofence check (optional based on config)
     area = "global"
