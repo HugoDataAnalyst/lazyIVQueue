@@ -28,9 +28,11 @@ cp LazyIVQueue/config/example.config.json LazyIVQueue/config/config.json
 ## Configuration
 
 ### .env
+- `LOG_LEVEL="INFO"` - Log level (default: `INFO`)
+- `LOG_FILE="False"` - Log to file (default: `False`)
 - `LAZYIVQUEUE_HOST` / `LAZYIVQUEUE_PORT` - Server bind address
 - `DRAGONITE_API_BASE_URL` - Dragonite Scout API endpoint (e.g., `http://127.0.0.1:7272`)
-- `FILTER_WITH_KOJI` - Enable geofence filtering (default: `TRUE`). Set to `FALSE` to only filter by ivlist
+- `FILTER_WITH_KOJI` - Enable geofence filtering (default: `TRUE`). Set to `FALSE` to only filter by ivlist/celllist
 - `KOJI_URL` - Koji base URL for geofences - still requires `KOJI_PROJECT_NAME` - The geofences present will be the ones that it works to LazyIVQueue
 - `ALLOWED_IPS` - Comma-separated IPs allowed to POST webhooks
 - `HEADERS` - Header auth (format: `HeaderName: Value`) Example in golbat to use it:
@@ -47,8 +49,8 @@ headers = ["HeaderName: Value"]
   - `"pokemon_id:form"` - Match specific form only (e.g., `"3:0"` matches Venusaur form 0)
   - Example: `["Pokemon A", "Pokemon B:0", "Pokemon C"]` - A is top priority, then B form 0, then C
 - `celllist` - Priority list for `nearby_cell` seen_type (same format as ivlist)
-  - Celllist entries are always processed before ivlist entries
-  - Uses honeycomb pattern (7 coordinates) to cover S2 level-15 cell
+  - Celllist entries are always processed before ivlist entries, so only insert really important ones here
+  - Uses 9x9 pattern (9 coordinates) to cover S2 level-15 cell
 - `scout.concurrency` - Max concurrent scout requests - Should match the number of scouts you have set in Dragonite
 - `scout.timeout_iv` - Seconds to wait for IV data before removing from queue (default: 180)
 
