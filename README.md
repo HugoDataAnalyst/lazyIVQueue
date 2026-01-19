@@ -42,10 +42,13 @@ headers = ["HeaderName: Value"]
 ```
 
 ### config.json
-- `ivlist` - Priority list of Pokemon to scout (first = highest priority)
+- `ivlist` - Priority list of Pokemon to scout for `wild`/`nearby_stop` seen_types (first = highest priority)
   - `"pokemon_id"` - Match any form (e.g., `"1"` matches Bulbasaur any form)
   - `"pokemon_id:form"` - Match specific form only (e.g., `"3:0"` matches Venusaur form 0)
   - Example: `["Pokemon A", "Pokemon B:0", "Pokemon C"]` - A is top priority, then B form 0, then C
+- `celllist` - Priority list for `nearby_cell` seen_type (same format as ivlist)
+  - Celllist entries are always processed before ivlist entries
+  - Uses honeycomb pattern (7 coordinates) to cover S2 level-15 cell
 - `scout.concurrency` - Max concurrent scout requests - Should match the number of scouts you have set in Dragonite
 - `scout.timeout_iv` - Seconds to wait for IV data before removing from queue (default: 180)
 

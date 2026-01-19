@@ -35,6 +35,10 @@ class QueueEntry:
     encounter_id: Optional[str] = field(compare=False, default=None)
     disappear_time: Optional[int] = field(compare=False, default=None)
 
+    # Seen type for scouting strategy
+    seen_type: str = field(compare=False, default="wild")  # "wild", "nearby_stop", or "nearby_cell"
+    s2_cell_id: Optional[str] = field(compare=False, default=None)  # S2 level-15 cell ID (for nearby_cell)
+
     # Tracking fields
     is_removed: bool = field(compare=False, default=False)
     is_scouting: bool = field(compare=False, default=False)
@@ -80,17 +84,18 @@ class IVQueueManager:
         self._queue_lock: asyncio.Lock = asyncio.Lock()
         self._initialized: bool = False
 
-        # Stats counters
-        self._total_queued: int = 0
-        self._total_matches: int = 0
-        self._total_early_iv: int = 0
-        self._total_timeouts: int = 0
+        # Stats counters by seen_type
+        self._seen_types = ["wild", "nearby_stop", "nearby_cell"]
+        self._queued_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
+        self._matches_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
+        self._early_iv_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
+        self._timeouts_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
 
-        # Per-Pokemon breakdown (key: "pokemon_id:form" or "pokemon_id")
-        self._queued_by_pokemon: Dict[str, int] = {}
-        self._matches_by_pokemon: Dict[str, int] = {}
-        self._early_iv_by_pokemon: Dict[str, int] = {}
-        self._timeouts_by_pokemon: Dict[str, int] = {}
+        # Per-Pokemon breakdown by seen_type (key: seen_type -> pokemon_display -> count)
+        self._queued_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
+        self._matches_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
+        self._early_iv_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
+        self._timeouts_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
 
     @classmethod
     async def get_instance(cls) -> IVQueueManager:
@@ -131,12 +136,17 @@ class IVQueueManager:
             # Add to heap and lookup dict
             heapq.heappush(self._heap, entry)
             self._entries[key] = entry
-            self._total_queued += 1
-            self._queued_by_pokemon[entry.pokemon_display] = self._queued_by_pokemon.get(entry.pokemon_display, 0) + 1
+
+            # Update stats by seen_type
+            seen_type = entry.seen_type
+            self._queued_by_type[seen_type] = self._queued_by_type.get(seen_type, 0) + 1
+            self._queued_by_pokemon[seen_type][entry.pokemon_display] = (
+                self._queued_by_pokemon[seen_type].get(entry.pokemon_display, 0) + 1
+            )
 
             logger.debug(
                 f"Added to queue: {entry.pokemon_display} in {entry.area} "
-                f"(priority {entry.priority}, queue size: {len(self._entries)})"
+                f"[{entry.seen_type}] (priority {entry.priority}, queue size: {len(self._entries)})"
             )
             return True
 
@@ -176,6 +186,44 @@ class IVQueueManager:
 
             return None
 
+    async def remove_by_cell_match(
+        self, pokemon_id: int, form: Optional[int], s2_cell_id: str
+    ) -> Optional[QueueEntry]:
+        """
+        Remove ONE entry matching pokemon and S2 cell (for nearby_cell scouting).
+
+        Only matches entries that are currently being scouted or have been scouted
+        (was_scouted=True OR is_scouting=True).
+
+        Args:
+            pokemon_id: Pokemon ID to match
+            form: Pokemon form to match (None matches any form)
+            s2_cell_id: S2 cell ID to match
+
+        Returns:
+            Removed entry if found, None otherwise
+        """
+        async with self._queue_lock:
+            for key, entry in list(self._entries.items()):
+                if entry.is_removed:
+                    continue
+                # Must be a nearby_cell entry with matching s2_cell_id
+                if entry.seen_type != "nearby_cell" or entry.s2_cell_id != s2_cell_id:
+                    continue
+                # Must match pokemon_id
+                if entry.pokemon_id != pokemon_id:
+                    continue
+                # Form matching: if incoming form is not None, must match
+                if form is not None and entry.form != form:
+                    continue
+                # Must be scouting or scouted (not just pending)
+                if not entry.is_scouting and not entry.was_scouted:
+                    continue
+                # Found match - remove only this one
+                return self._remove_entry(key)
+
+            return None
+
     def _remove_entry(self, key: str) -> Optional[QueueEntry]:
         """Remove entry by key (internal, must hold lock). Does not update stats."""
         if key not in self._entries:
@@ -191,20 +239,26 @@ class IVQueueManager:
         )
         return entry
 
-    def record_match(self, pokemon_display: str) -> None:
+    def record_match(self, pokemon_display: str, seen_type: str) -> None:
         """Record a successful IV match (after scouting)."""
-        self._total_matches += 1
-        self._matches_by_pokemon[pokemon_display] = self._matches_by_pokemon.get(pokemon_display, 0) + 1
+        self._matches_by_type[seen_type] = self._matches_by_type.get(seen_type, 0) + 1
+        self._matches_by_pokemon[seen_type][pokemon_display] = (
+            self._matches_by_pokemon[seen_type].get(pokemon_display, 0) + 1
+        )
 
-    def record_early_iv(self, pokemon_display: str) -> None:
+    def record_early_iv(self, pokemon_display: str, seen_type: str) -> None:
         """Record an early IV (received before scouting)."""
-        self._total_early_iv += 1
-        self._early_iv_by_pokemon[pokemon_display] = self._early_iv_by_pokemon.get(pokemon_display, 0) + 1
+        self._early_iv_by_type[seen_type] = self._early_iv_by_type.get(seen_type, 0) + 1
+        self._early_iv_by_pokemon[seen_type][pokemon_display] = (
+            self._early_iv_by_pokemon[seen_type].get(pokemon_display, 0) + 1
+        )
 
-    def record_timeout(self, pokemon_display: str) -> None:
+    def record_timeout(self, pokemon_display: str, seen_type: str) -> None:
         """Record a scout timeout."""
-        self._total_timeouts += 1
-        self._timeouts_by_pokemon[pokemon_display] = self._timeouts_by_pokemon.get(pokemon_display, 0) + 1
+        self._timeouts_by_type[seen_type] = self._timeouts_by_type.get(seen_type, 0) + 1
+        self._timeouts_by_pokemon[seen_type][pokemon_display] = (
+            self._timeouts_by_pokemon[seen_type].get(pokemon_display, 0) + 1
+        )
 
     async def get_next_for_scout(self) -> Optional[QueueEntry]:
         """
@@ -294,6 +348,19 @@ class IVQueueManager:
         """Return number of available scout slots."""
         return AppConfig.concurrency_scout - self._active_scouts
 
+    def _get_total_from_type_dict(self, type_dict: Dict[str, int]) -> int:
+        """Sum all values in a seen_type dict."""
+        return sum(type_dict.values())
+
+    def _build_type_stats(self, type_dict: Dict[str, int]) -> Dict[str, Any]:
+        """Build stats dict with total and per-type breakdown."""
+        return {
+            "total": self._get_total_from_type_dict(type_dict),
+            "wild": type_dict.get("wild", 0),
+            "nearby_stop": type_dict.get("nearby_stop", 0),
+            "nearby_cell": type_dict.get("nearby_cell", 0),
+        }
+
     async def get_stats(self) -> Dict[str, Any]:
         """Return queue statistics."""
         # Count entries waiting for IV match
@@ -308,15 +375,29 @@ class IVQueueManager:
             "max_concurrency": AppConfig.concurrency_scout,
             "available_slots": self.get_available_slots(),
             "session": {
-                "total_queued": self._total_queued,
-                "total_matches": self._total_matches,
-                "total_early_iv": self._total_early_iv,
-                "total_timeouts": self._total_timeouts,
+                "total_queued": self._build_type_stats(self._queued_by_type),
+                "total_matches": self._build_type_stats(self._matches_by_type),
+                "total_early_iv": self._build_type_stats(self._early_iv_by_type),
+                "total_timeouts": self._build_type_stats(self._timeouts_by_type),
                 "by_pokemon": {
-                    "queued": self._queued_by_pokemon,
-                    "matches": self._matches_by_pokemon,
-                    "early_iv": self._early_iv_by_pokemon,
-                    "timeouts": self._timeouts_by_pokemon,
+                    "wild": {
+                        "queued": self._queued_by_pokemon.get("wild", {}),
+                        "matches": self._matches_by_pokemon.get("wild", {}),
+                        "early_iv": self._early_iv_by_pokemon.get("wild", {}),
+                        "timeouts": self._timeouts_by_pokemon.get("wild", {}),
+                    },
+                    "nearby_stop": {
+                        "queued": self._queued_by_pokemon.get("nearby_stop", {}),
+                        "matches": self._matches_by_pokemon.get("nearby_stop", {}),
+                        "early_iv": self._early_iv_by_pokemon.get("nearby_stop", {}),
+                        "timeouts": self._timeouts_by_pokemon.get("nearby_stop", {}),
+                    },
+                    "nearby_cell": {
+                        "queued": self._queued_by_pokemon.get("nearby_cell", {}),
+                        "matches": self._matches_by_pokemon.get("nearby_cell", {}),
+                        "early_iv": self._early_iv_by_pokemon.get("nearby_cell", {}),
+                        "timeouts": self._timeouts_by_pokemon.get("nearby_cell", {}),
+                    },
                 },
             },
         }
@@ -364,12 +445,18 @@ class IVQueueManager:
         waiting_for_iv = sum(1 for e in self._entries.values() if e.was_scouted and not e.is_removed)
         pending = queue_size - waiting_for_iv
 
+        # Calculate totals
+        total_queued = self._get_total_from_type_dict(self._queued_by_type)
+        total_matches = self._get_total_from_type_dict(self._matches_by_type)
+        total_early = self._get_total_from_type_dict(self._early_iv_by_type)
+        total_timeouts = self._get_total_from_type_dict(self._timeouts_by_type)
+
         logger.info(
             f"IVQueue Status: {pending} pending | "
             f"{waiting_for_iv} awaiting IV | "
             f"{active} active scouts | "
             f"{available} slots available | "
-            f"Session: {self._total_queued} queued / {self._total_matches} matches / {self._total_early_iv} early / {self._total_timeouts} timeouts"
+            f"Session: {total_queued} queued / {total_matches} matches / {total_early} early / {total_timeouts} timeouts"
         )
 
         if queue_size > 0:
@@ -431,11 +518,15 @@ class IVQueueManager:
                             f"[encounter_id: {entry.encounter_id}] - no IV after {int(elapsed)}s"
                         )
                         pokemon_display = entry.pokemon_display
+                        seen_type = entry.seen_type
                         entry.is_removed = True
                         del self._entries[key]
                         removed_count += 1
-                        self._total_timeouts += 1
-                        self._timeouts_by_pokemon[pokemon_display] = self._timeouts_by_pokemon.get(pokemon_display, 0) + 1
+                        # Update timeout stats by seen_type
+                        self._timeouts_by_type[seen_type] = self._timeouts_by_type.get(seen_type, 0) + 1
+                        self._timeouts_by_pokemon[seen_type][pokemon_display] = (
+                            self._timeouts_by_pokemon[seen_type].get(pokemon_display, 0) + 1
+                        )
 
         if removed_count > 0:
             logger.info(f"Cleaned up {removed_count} timed out scout entries")

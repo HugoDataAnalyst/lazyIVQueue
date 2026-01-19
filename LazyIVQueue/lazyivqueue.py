@@ -90,8 +90,12 @@ class LazyIVQueueApp:
         logger.info(f"  Webhook: http://{AppConfig.lazyivqueue_host}:{AppConfig.lazyivqueue_port}/webhook")
         logger.info(f"  Scout concurrency: {AppConfig.concurrency_scout}")
         logger.info(f"  IV list entries: {len(AppConfig.ivlist)}")
+        logger.info(f"  Cell list entries: {len(AppConfig.celllist)}")
         if AppConfig.ivlist:
-            logger.info(f"  Priority order: {', '.join(AppConfig.ivlist[:5])}...")
+            logger.info(f"  IV Priority order: {', '.join(AppConfig.ivlist[:5])}...")
+        logger.info("-" * 60)
+        if AppConfig.celllist:
+            logger.info(f"  Cell Priority order: {', '.join(AppConfig.celllist[:5])}...")
         logger.info("-" * 60)
 
     async def _cleanup_loop(self) -> None:

@@ -1,5 +1,6 @@
 {
     "ivlist": ["1", "3:0", "10:0", "25", "150:0"],
+    "celllist": ["151"],
     "geofences": {
         "expire_cache_seconds": 1800,
         "refresh_cache_seconds": 1800

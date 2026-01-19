@@ -5,10 +5,11 @@ import asyncio
 from typing import Optional, Dict, Any
 
 from LazyIVQueue.utils.logger import logger
+from LazyIVQueue.utils.s2_utils import generate_honeycomb_coords
 from LazyIVQueue.queue.iv_queue import IVQueueManager, QueueEntry
 from LazyIVQueue.DragoniteAPI import get_dragonite_client
 from LazyIVQueue.DragoniteAPI.utils.http_api import APIClient
-from LazyIVQueue.DragoniteAPI.endpoints.scout import scout_single
+from LazyIVQueue.DragoniteAPI.endpoints.scout import scout_single, scout_v2
 import LazyIVQueue.config as AppConfig
 
 
@@ -91,29 +92,52 @@ class ScoutCoordinator:
         """
         Execute a single scout operation.
 
+        For nearby_cell: Uses honeycomb pattern (7 coordinates)
+        For wild/nearby_stop: Uses single coordinate
+
         Calls Dragonite API v2: POST /v2/scout with {username, locations, options}
         """
         queue = await IVQueueManager.get_instance()
         success = False
 
         try:
-            logger.debug(
-                f"Sending scout request: Pokemon {entry.pokemon_display} "
-                f"at ({entry.lat:.6f}, {entry.lon:.6f}) in {entry.area} "
-                f"[encounter_id: {entry.encounter_id}]"
-            )
-
-            # Call Dragonite Scout API via endpoint (returns text response)
-            response = await scout_single(self._client, entry.lat, entry.lon)
+            # Determine coordinates based on seen_type
+            if entry.seen_type == "nearby_cell":
+                # Generate honeycomb pattern (7 points)
+                coordinates = generate_honeycomb_coords(entry.lat, entry.lon)
+                coord_count = len(coordinates)
+                logger.debug(
+                    f"Sending honeycomb scout request: Pokemon {entry.pokemon_display} "
+                    f"at ({entry.lat:.6f}, {entry.lon:.6f}) in {entry.area} "
+                    f"[s2_cell: {entry.s2_cell_id}] ({coord_count} coords)"
+                )
+                response = await scout_v2(self._client, coordinates)
+            else:
+                # Single coordinate for wild/nearby_stop
+                coord_count = 1
+                logger.debug(
+                    f"Sending scout request: Pokemon {entry.pokemon_display} "
+                    f"at ({entry.lat:.6f}, {entry.lon:.6f}) in {entry.area} "
+                    f"[encounter_id: {entry.encounter_id}]"
+                )
+                response = await scout_single(self._client, entry.lat, entry.lon)
 
             self._total_scouts += 1
             success = True
             self._successful_scouts += 1
 
-            logger.info(
-                f"[>] Scout sent: Pokemon {entry.pokemon_display} in {entry.area} "
-                f"at ({entry.lat:.6f}, {entry.lon:.6f}) [encounter_id: {entry.encounter_id}]"
-            )
+            # Log based on seen_type
+            if entry.seen_type == "nearby_cell":
+                logger.info(
+                    f"[>] Scout sent: Pokemon {entry.pokemon_display} in {entry.area} "
+                    f"at ({entry.lat:.6f}, {entry.lon:.6f}) [s2_cell: {entry.s2_cell_id}] "
+                    f"(honeycomb: {coord_count} coords)"
+                )
+            else:
+                logger.info(
+                    f"[>] Scout sent: Pokemon {entry.pokemon_display} in {entry.area} "
+                    f"at ({entry.lat:.6f}, {entry.lon:.6f}) [encounter_id: {entry.encounter_id}]"
+                )
             logger.debug(
                 f"Scout response: {response}"
             )
