@@ -5,7 +5,7 @@
         "calibration_minutes": 5,
         "iv_threshold": 50,
         "cell_threshold": 10,
-        "ranking_interval_seconds": 300,
+        "ranking_interval_seconds": 120,
         "cleanup_interval_seconds": 60
     },
     "geofences": {
