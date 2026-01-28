@@ -139,6 +139,29 @@ docker-compose up -d --build
 - `GET /queue` - Queue preview (next N entries, use `?count=N`)
 - `GET /rarity` - Auto Rarity rankings per area (use `?area=AreaName&limit=100`)
 - `GET /config` - Current configuration summary
+- `POST /reload` - Hot-reload config.json values without restarting
+
+### Hot Reload
+
+The `/reload` endpoint allows you to update config.json values without restarting the service.
+
+**Reloadable settings:**
+- `ivlist`, `celllist` - Priority lists
+- `auto_rarity` settings - thresholds, intervals
+- `scout.concurrency`, `scout.timeout_iv` - Scout settings
+- `geofences` cache settings
+
+**Requires restart:**
+- Server host/port (`.env`)
+- Dragonite API settings (`.env`)
+- Koji credentials (`.env`)
+- `AUTO_RARITY`, `FILTER_WITH_KOJI` (`.env`)
+- `LOG_LEVEL`, `LOG_FILE` (`.env`)
+
+Example:
+```bash
+curl -X POST http://localhost:7070/reload
+```
 
 ## Log Prefixes
 
