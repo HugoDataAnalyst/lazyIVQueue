@@ -5,7 +5,9 @@ from typing import Optional, Set, List
 from aiohttp import web
 
 from LazyIVQueue.utils.logger import logger
-from LazyIVQueue.webhook.filter import process_pokemon_webhook
+from LazyIVQueue.webhook.filter import process_pokemon_webhook, process_census_webhook
+from LazyIVQueue.rarity.manager import RarityManager
+from LazyIVQueue.queue.iv_queue import IVQueueManager
 import LazyIVQueue.config as AppConfig
 
 
@@ -127,17 +129,67 @@ class LazyIVQueueServer:
                 if pokemon_data:
                     await process_pokemon_webhook(pokemon_data)
 
+    async def handle_census(self, request: web.Request) -> web.Response:
+        """
+        Handle incoming census webhook POST requests.
+        Receives ALL Pokemon spawns for rarity tracking.
+
+        Expected payload format from Golbat:
+        {
+            "type": "pokemon",
+            "message": { ... pokemon data ... }
+        }
+        or array of messages.
+        """
+        # Validate IP
+        if not self._validate_ip(request):
+            client_ip = request.remote
+            logger.warning(f"Rejected census webhook from unauthorized IP: {client_ip}")
+            return web.Response(status=403, text="Forbidden")
+
+        # Validate auth
+        if not self._validate_auth(request):
+            logger.warning(f"Rejected census webhook with invalid auth from: {request.remote}")
+            return web.Response(status=401, text="Unauthorized")
+
+        try:
+            payload = await request.json()
+            await self._process_census_payload(payload)
+            return web.Response(status=200, text="OK")
+        except Exception as e:
+            logger.error(f"Error processing census webhook: {e}")
+            return web.Response(status=500, text="Internal Error")
+
+    async def _process_census_payload(self, payload) -> None:
+        """Process census webhook payload - feeds RarityManager."""
+        messages = payload if isinstance(payload, list) else [payload]
+
+        for msg in messages:
+            msg_type = msg.get("type")
+
+            # We only care about pokemon messages good sir
+            if msg_type == "pokemon":
+                pokemon_data = msg.get("message", {})
+                if pokemon_data:
+                    await process_census_webhook(pokemon_data)
+
     async def handle_health(self, request: web.Request) -> web.Response:
         """Health check endpoint."""
         return web.json_response({"status": "healthy"})
 
     async def handle_stats(self, request: web.Request) -> web.Response:
-        """Queue statistics endpoint."""
-        from LazyIVQueue.queue.iv_queue import IVQueueManager
-
+        """Queue and rarity statistics endpoint."""
         try:
             queue = await IVQueueManager.get_instance()
-            stats = await queue.get_stats()
+            stats = {
+                "queue": await queue.get_stats(),
+            }
+
+            # Add rarity stats if auto_rarity is enabled
+            if AppConfig.auto_rarity_enabled:
+                rarity_manager = await RarityManager.get_instance()
+                stats["rarity"] = await rarity_manager.get_stats()
+
             return web.json_response(stats)
         except Exception as e:
             logger.error(f"Error getting stats: {e}")
@@ -145,14 +197,13 @@ class LazyIVQueueServer:
 
     async def handle_queue_preview(self, request: web.Request) -> web.Response:
         """Queue preview endpoint - shows next N entries."""
-        from LazyIVQueue.queue.iv_queue import IVQueueManager
 
         try:
             count = int(request.query.get("count", 10))
             count = min(count, 100)  # Cap at 100
 
             queue = await IVQueueManager.get_instance()
-            preview = await queue.get_next_entries_preview(count)
+            preview = queue.get_next_entries_preview(count)
 
             return web.json_response({
                 "count": len(preview),
@@ -160,6 +211,33 @@ class LazyIVQueueServer:
             })
         except Exception as e:
             logger.error(f"Error getting queue preview: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_rarity(self, request: web.Request) -> web.Response:
+        """
+        Auto Rarity rankings endpoint.
+        Shows Pokemon ranked by rarity for each area.
+
+        Query params:
+            area: Filter to specific area (optional)
+            limit: Max Pokemon per area (default 100, max 500)
+        """
+        if not AppConfig.auto_rarity_enabled:
+            return web.json_response(
+                {"error": "Auto Rarity is not enabled. Set AUTO_RARITY=TRUE in .env"},
+                status=400
+            )
+
+        try:
+            area = request.query.get("area")
+            limit = min(int(request.query.get("limit", 100)), 500)
+
+            rarity_manager = await RarityManager.get_instance()
+            rankings = await rarity_manager.get_rankings(area=area, limit=limit)
+
+            return web.json_response(rankings)
+        except Exception as e:
+            logger.error(f"Error getting rarity rankings: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
     async def handle_config(self, request: web.Request) -> web.Response:
@@ -195,9 +273,11 @@ class LazyIVQueueServer:
         """Start the API server."""
         self._app = web.Application()
         self._app.router.add_post("/webhook", self.handle_webhook)
+        self._app.router.add_post("/webhook/census", self.handle_census)
         self._app.router.add_get("/health", self.handle_health)
         self._app.router.add_get("/stats", self.handle_stats)
         self._app.router.add_get("/queue", self.handle_queue_preview)
+        self._app.router.add_get("/rarity", self.handle_rarity)
         self._app.router.add_get("/config", self.handle_config)
 
         self._runner = web.AppRunner(self._app)
@@ -207,11 +287,13 @@ class LazyIVQueueServer:
         await self._site.start()
 
         logger.info(f"LazyIVQueue server started on http://{self.host}:{self.port}")
-        logger.debug(f"  POST /webhook - Receive Golbat webhooks (secured)")
-        logger.debug(f"  GET  /health  - Health check")
-        logger.debug(f"  GET  /stats   - Queue statistics")
-        logger.debug(f"  GET  /queue   - Queue preview (?count=N)")
-        logger.debug(f"  GET  /config  - Configuration summary")
+        logger.debug(f"  POST /webhook        - Receive Golbat webhooks (secured)")
+        logger.debug(f"  POST /webhook/census - Receive ALL spawns for rarity tracking")
+        logger.debug(f"  GET  /health         - Health check")
+        logger.debug(f"  GET  /stats          - Queue and rarity statistics")
+        logger.debug(f"  GET  /queue          - Queue preview (?count=N)")
+        logger.debug(f"  GET  /rarity         - Auto Rarity rankings (?area=X&limit=N)")
+        logger.debug(f"  GET  /config         - Configuration summary")
 
         if self.allowed_ips:
             logger.info(f"Webhook IP whitelist: {len(self.allowed_ips)} IPs allowed")
