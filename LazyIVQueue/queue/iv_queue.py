@@ -462,10 +462,12 @@ class IVQueueManager:
     def log_queue_status(self) -> None:
         """Log current queue status with next 10 entries preview."""
         queue_size = len(self._entries)
+        heap_size = len(self._heap)
 
         # Count entries waiting for IV match
         waiting_for_iv = sum(1 for e in self._entries.values() if e.was_scouted and not e.is_removed)
-        pending = queue_size - waiting_for_iv
+        currently_scouting = sum(1 for e in self._entries.values() if e.is_scouting and not e.is_removed)
+        pending = queue_size - waiting_for_iv - currently_scouting
 
         # Calculate totals
         total_queued = self._get_total_from_type_dict(self._queued_by_type)
@@ -474,8 +476,8 @@ class IVQueueManager:
         total_timeouts = self._get_total_from_type_dict(self._timeouts_by_type)
 
         logger.info(
-            f"IVQueue Status: {pending} pending | "
-            f"{waiting_for_iv} awaiting IV | "
+            f"IVQueue Status: {pending} pending | {currently_scouting} scouting | "
+            f"{waiting_for_iv} awaiting IV | heap={heap_size} | "
             f"Session: {total_queued} queued / {total_matches} matches / {total_early} early / {total_timeouts} timeouts"
         )
 
