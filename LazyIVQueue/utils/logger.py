@@ -121,11 +121,17 @@ def setup_logging(log_lvl: str = "DEBUG", options: Optional[LoggingOptions] = No
             msg = record.getMessage()
             if "Task queue depth" in msg:
                 return
+
+            # Downgrade aiohttp access logs for 200 responses to DEBUG
+            if record.name == "aiohttp.access" and '" 200 ' in msg:
+                logger.opt(depth=6, exception=record.exc_info).debug(msg)
+                return
+
             try:
                 level = logger.level(record.levelname).name
             except Exception:
                 level = record.levelno
-            logger.opt(depth=6, exception=record.exc_info).log(level, record.getMessage())
+            logger.opt(depth=6, exception=record.exc_info).log(level, msg)
 
     logging.root.handlers = [InterceptHandler()]
     logging.root.setLevel(logging.getLevelName(log_lvl))
@@ -140,6 +146,8 @@ def setup_logging(log_lvl: str = "DEBUG", options: Optional[LoggingOptions] = No
         "aiomysql",
         "asyncio",
         "waitress",
+        "aiohttp",
+        "aiohttp.access",
     ):
         lg = logging.getLogger(name)
         lg.handlers = [InterceptHandler()]
