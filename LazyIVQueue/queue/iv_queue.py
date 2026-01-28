@@ -83,6 +83,7 @@ class IVQueueManager:
         self._heap: List[QueueEntry] = []
         self._entries: Dict[str, QueueEntry] = {}  # key -> entry for O(1) lookup
         self._scout_semaphore: Optional[asyncio.Semaphore] = None
+        self._current_concurrency: int = 0
         self._active_scouts: int = 0
         self._queue_lock: asyncio.Lock = asyncio.Lock()
         self._initialized: bool = False
@@ -115,8 +116,28 @@ class IVQueueManager:
             return
 
         self._scout_semaphore = asyncio.Semaphore(AppConfig.concurrency_scout)
+        self._current_concurrency = AppConfig.concurrency_scout
         self._initialized = True
         logger.info(f"IVQueue initialized with concurrency limit: {AppConfig.concurrency_scout}")
+
+    async def update_concurrency(self, new_concurrency: int) -> None:
+        """
+        Update scout concurrency limit by recreating the semaphore.
+
+        Note: This is a best-effort operation. Active scouts will continue
+        until they complete. New concurrency takes effect for new scouts.
+
+        Args:
+            new_concurrency: New concurrency limit
+        """
+        async with self._queue_lock:
+            old_concurrency = self._current_concurrency
+            # Create new semaphore with new limit
+            self._scout_semaphore = asyncio.Semaphore(new_concurrency)
+            self._current_concurrency = new_concurrency
+            logger.info(
+                f"Scout concurrency updated: {old_concurrency} -> {new_concurrency}"
+            )
 
     async def add(self, entry: QueueEntry) -> bool:
         """

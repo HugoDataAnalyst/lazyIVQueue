@@ -9,6 +9,7 @@ from LazyIVQueue.webhook.filter import process_pokemon_webhook, process_census_w
 from LazyIVQueue.rarity.manager import RarityManager
 from LazyIVQueue.queue.iv_queue import IVQueueManager
 import LazyIVQueue.config as AppConfig
+from LazyIVQueue.config import reload_config
 
 
 class LazyIVQueueServer:
@@ -269,6 +270,43 @@ class LazyIVQueueServer:
             logger.error(f"Error getting config: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
+    async def handle_reload(self, request: web.Request) -> web.Response:
+        """
+        Hot-reload config.json values without restarting.
+
+        Reloadable:
+        - ivlist, celllist
+        - auto_rarity settings (thresholds, intervals)
+        - scout concurrency and timeout
+        - geofence cache settings
+
+        NOT reloadable (require restart):
+        - Server host/port, Dragonite API, Koji credentials
+        - LOG_LEVEL, AUTO_RARITY enable/disable, FILTER_WITH_KOJI
+        """
+        try:
+            # Reload config values
+            changes = reload_config()
+
+            # If concurrency changed, update the queue semaphore
+            if "concurrency_scout" in changes:
+                queue = await IVQueueManager.get_instance()
+                await queue.update_concurrency(changes["concurrency_scout"]["new"])
+                logger.info(
+                    f"Scout concurrency updated: {changes['concurrency_scout']['old']} -> "
+                    f"{changes['concurrency_scout']['new']}"
+                )
+
+            return web.json_response({
+                "status": "success",
+                "changes_count": len(changes),
+                "changes": changes,
+                "note": "Some settings (server, Dragonite API, Koji, LOG_LEVEL, AUTO_RARITY, FILTER_WITH_KOJI) require restart"
+            })
+        except Exception as e:
+            logger.error(f"Error reloading config: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
     async def start(self) -> None:
         """Start the API server."""
         self._app = web.Application()
@@ -279,6 +317,7 @@ class LazyIVQueueServer:
         self._app.router.add_get("/queue", self.handle_queue_preview)
         self._app.router.add_get("/rarity", self.handle_rarity)
         self._app.router.add_get("/config", self.handle_config)
+        self._app.router.add_post("/reload", self.handle_reload)
 
         self._runner = web.AppRunner(self._app)
         await self._runner.setup()
@@ -294,6 +333,7 @@ class LazyIVQueueServer:
         logger.debug(f"  GET  /queue          - Queue preview (?count=N)")
         logger.debug(f"  GET  /rarity         - Auto Rarity rankings (?area=X&limit=N)")
         logger.debug(f"  GET  /config         - Configuration summary")
+        logger.debug(f"  POST /reload         - Hot-reload config.json")
 
         if self.allowed_ips:
             logger.info(f"Webhook IP whitelist: {len(self.allowed_ips)} IPs allowed")
