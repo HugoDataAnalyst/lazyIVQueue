@@ -39,6 +39,9 @@ class QueueEntry:
     seen_type: str = field(compare=False, default="wild")  # "wild", "nearby_stop", or "nearby_cell"
     s2_cell_id: Optional[str] = field(compare=False, default=None)  # S2 level-15 cell ID (for nearby_cell)
 
+    # Source list for tracking
+    list_type: str = field(compare=False, default="unknown")  # "ivlist", "celllist", or "auto_rarity"
+
     # Tracking fields
     is_removed: bool = field(compare=False, default=False)
     is_scouting: bool = field(compare=False, default=False)
@@ -438,8 +441,6 @@ class IVQueueManager:
     def log_queue_status(self) -> None:
         """Log current queue status with next 10 entries preview."""
         queue_size = len(self._entries)
-        active = self._active_scouts
-        available = self.get_available_slots()
 
         # Count entries waiting for IV match
         waiting_for_iv = sum(1 for e in self._entries.values() if e.was_scouted and not e.is_removed)
@@ -454,8 +455,6 @@ class IVQueueManager:
         logger.info(
             f"IVQueue Status: {pending} pending | "
             f"{waiting_for_iv} awaiting IV | "
-            f"{active} active scouts | "
-            f"{available} slots available | "
             f"Session: {total_queued} queued / {total_matches} matches / {total_early} early / {total_timeouts} timeouts"
         )
 
