@@ -8,6 +8,7 @@ This ensures ivlist/celllist ALWAYS take priority over auto_rarity.
 """
 from __future__ import annotations
 
+import time as time_module
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 
@@ -302,6 +303,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
     stored_list_type = "auto_rarity" if list_type.startswith("auto_rarity") else list_type
 
     queue = await IVQueueManager.get_instance()
+    default_disappear_time = int(time_module.time()) + 600
     entry = QueueEntry(
         pokemon_id=pokemon.pokemon_id,
         form=pokemon.form,
@@ -311,7 +313,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
         spawnpoint_id=pokemon.spawnpoint_id,
         priority=priority,
         encounter_id=pokemon.encounter_id,
-        disappear_time=pokemon.disappear_time,
+        disappear_time=pokemon.disappear_time or default_disappear_time,
         seen_type=seen_type,
         s2_cell_id=s2_cell_id,
         list_type=stored_list_type,
