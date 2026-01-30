@@ -208,6 +208,12 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
     s2_cell_id: Optional[str] = None
     list_type = "unknown"
 
+    # Skip unsupported seen_types (e.g., lure_wild, lure_pokestop)
+    supported_seen_types = {"wild", "nearby_stop", "nearby_cell"}
+    if seen_type not in supported_seen_types:
+        logger.warning(f"Skipping unsupported seen_type: {seen_type}")
+        return
+
     if seen_type == "nearby_cell":
         # nearby_cell: ONLY check celllist (no auto_rarity for cell scouting)
         matches_cell, cell_priority = is_in_celllist(pokemon)
@@ -321,8 +327,8 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
 
     added = await queue.add(entry)
     if added:
-        logger.info(
-            f"[+] Queued: Pokemon {pokemon.pokemon_display} in {area} "
+        logger.opt(colors=True).info(
+            f"<green>[+]</green> Queued: Pokemon {pokemon.pokemon_display} in {area} "
             f"(priority {priority}, {list_type}, {seen_type})"
         )
         # Log queue status with next entries preview
@@ -380,15 +386,15 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
         # Check if this was scouted by us or received IV before we scouted
         if removed.was_scouted or removed.is_scouting:
             queue.record_match(pokemon.pokemon_display, removed.seen_type)
-            logger.success(
-                f"[<] Match found ({removed.list_type}): Pokemon {pokemon.pokemon_display} in {area} - "
+            logger.opt(colors=True).success(
+                f"<green>[<]</green> Match found ({removed.list_type}): Pokemon {pokemon.pokemon_display} in {area} - "
                 f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
                 f"({pokemon.iv_percent}%)"
             )
         else:
             queue.record_early_iv(pokemon.pokemon_display, removed.seen_type)
-            logger.success(
-                f"[<] Early IV ({removed.list_type}): Pokemon {pokemon.pokemon_display} in {area} - "
+            logger.opt(colors=True).success(
+                f"<magenta>[<]</magenta> Early IV ({removed.list_type}): Pokemon {pokemon.pokemon_display} in {area} - "
                 f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
                 f"({pokemon.iv_percent}%)"
             )

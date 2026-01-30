@@ -112,7 +112,7 @@ class RarityManager:
             # Initialize area if needed
             if area not in self._actives:
                 self._actives[area] = {}
-                logger.info(f"[*] Census: New area discovered: {area}")
+                logger.opt(colors=True).info(f"<yellow>[*]</yellow> Census: New area discovered: {area}")
 
             # Initialize pokemon list if needed
             if pokemon_key not in self._actives[area]:
@@ -237,7 +237,7 @@ class RarityManager:
                     del self._actives[area]
 
         if removed_count > 0:
-            logger.info(f"[~] Census cleanup: removed {removed_count} expired spawns")
+            logger.opt(colors=True).info(f"<cyan>[~]</cyan> Census cleanup: removed {removed_count} expired spawns")
 
         return removed_count
 
@@ -338,7 +338,7 @@ class RarityManager:
                 if idx + 1 <= AppConfig.iv_threshold:  # rank is 1-indexed
                     rare_count += 1
 
-        status_icon = "[*]" if self._status == "CALIBRATING" else "[~]"
+        status_icon = "<yellow>[*]</yellow>" if self._status == "CALIBRATING" else "<cyan>[~]</cyan>"
         calibration_info = ""
         if self._status == "CALIBRATING":
             remaining = max(0, AppConfig.calibration_minutes * 60 - elapsed)
@@ -350,7 +350,7 @@ class RarityManager:
             all_pokemon_keys.update(pokemon_dict.keys())
         unique_pokemon = len(all_pokemon_keys)
 
-        logger.info(
+        logger.opt(colors=True).info(
             f"{status_icon} Census Status: {self._total_spawns_tracked} spawns received | "
             f"{unique_pokemon} unique pokemon | {total_active} active | {len(self._actives)} areas | "
             f"{rare_count} rare (rank<={AppConfig.iv_threshold}){calibration_info}"

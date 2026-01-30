@@ -127,14 +127,14 @@ class ScoutCoordinator:
 
             # Log based on scout type (celllist vs ivlist)
             if entry.s2_cell_id:
-                logger.info(
-                    f"[>] Scout sent: Pokemon {entry.pokemon_display} in {entry.area} "
+                logger.opt(colors=True).info(
+                    f"<cyan>[>]</cyan> Scout sent: Pokemon {entry.pokemon_display} in {entry.area} "
                     f"at ({entry.lat:.6f}, {entry.lon:.6f}) [s2_cell: {entry.s2_cell_id}] "
                     f"(9-point grid: {coord_count} coords)"
                 )
             else:
-                logger.info(
-                    f"[>] Scout sent: Pokemon {entry.pokemon_display} in {entry.area} "
+                logger.opt(colors=True).info(
+                    f"<cyan>[>]</cyan> Scout sent: Pokemon {entry.pokemon_display} in {entry.area} "
                     f"at ({entry.lat:.6f}, {entry.lon:.6f}) [encounter_id: {entry.encounter_id}]"
                 )
             logger.debug(
@@ -148,8 +148,8 @@ class ScoutCoordinator:
         except Exception as e:
             self._total_scouts += 1
             self._failed_scouts += 1
-            logger.error(
-                f"[!] Scout failed: Pokemon {entry.pokemon_display} "
+            logger.opt(colors=True).error(
+                f"<red>[!]</red> Scout failed: Pokemon {entry.pokemon_display} "
                 f"[encounter_id: {entry.encounter_id}] - {e}"
             )
 

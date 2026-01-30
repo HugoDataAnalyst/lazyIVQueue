@@ -161,12 +161,13 @@ class IVQueueManager:
             heapq.heappush(self._heap, entry)
             self._entries[key] = entry
 
-            # Update stats by seen_type
+            # Update stats by seen_type (skip unknown types)
             seen_type = entry.seen_type
-            self._queued_by_type[seen_type] = self._queued_by_type.get(seen_type, 0) + 1
-            self._queued_by_pokemon[seen_type][entry.pokemon_display] = (
-                self._queued_by_pokemon[seen_type].get(entry.pokemon_display, 0) + 1
-            )
+            if seen_type in self._seen_types:
+                self._queued_by_type[seen_type] = self._queued_by_type.get(seen_type, 0) + 1
+                self._queued_by_pokemon[seen_type][entry.pokemon_display] = (
+                    self._queued_by_pokemon[seen_type].get(entry.pokemon_display, 0) + 1
+                )
 
             logger.debug(
                 f"Added to queue: {entry.pokemon_display} in {entry.area} "
@@ -265,6 +266,8 @@ class IVQueueManager:
 
     def record_match(self, pokemon_display: str, seen_type: str) -> None:
         """Record a successful IV match (after scouting)."""
+        if seen_type not in self._seen_types:
+            return
         self._matches_by_type[seen_type] = self._matches_by_type.get(seen_type, 0) + 1
         self._matches_by_pokemon[seen_type][pokemon_display] = (
             self._matches_by_pokemon[seen_type].get(pokemon_display, 0) + 1
@@ -272,6 +275,8 @@ class IVQueueManager:
 
     def record_early_iv(self, pokemon_display: str, seen_type: str) -> None:
         """Record an early IV (received before scouting)."""
+        if seen_type not in self._seen_types:
+            return
         self._early_iv_by_type[seen_type] = self._early_iv_by_type.get(seen_type, 0) + 1
         self._early_iv_by_pokemon[seen_type][pokemon_display] = (
             self._early_iv_by_pokemon[seen_type].get(pokemon_display, 0) + 1
@@ -279,6 +284,8 @@ class IVQueueManager:
 
     def record_timeout(self, pokemon_display: str, seen_type: str) -> None:
         """Record a scout timeout."""
+        if seen_type not in self._seen_types:
+            return
         self._timeouts_by_type[seen_type] = self._timeouts_by_type.get(seen_type, 0) + 1
         self._timeouts_by_pokemon[seen_type][pokemon_display] = (
             self._timeouts_by_pokemon[seen_type].get(pokemon_display, 0) + 1
@@ -475,10 +482,10 @@ class IVQueueManager:
         total_early = self._get_total_from_type_dict(self._early_iv_by_type)
         total_timeouts = self._get_total_from_type_dict(self._timeouts_by_type)
 
-        logger.info(
-            f"IVQueue Status: <yellow>{pending}</yellow> pending | {currently_scouting} scouting | "
-            f"{waiting_for_iv} awaiting IV | <cyan>heap={heap_size}</cyan> | "
-            f"Session: {total_queued} queued / <green>{total_matches}</green> matches / {total_early} early / {total_timeouts} timeouts"
+        logger.opt(colors=True).info(
+            f"IVQueue Status: <yellow>{pending} pending</yellow> | {currently_scouting} scouting | "
+            f"<blue>{waiting_for_iv} awaiting IV</blue> | <cyan>heap={heap_size}</cyan> | "
+            f"<orange>Session: {total_queued} queued</orange> / <green>{total_matches} matches</green> / <magenta>{total_early} early</magenta> / <red>{total_timeouts} timeouts</red>"
         )
 
         if queue_size > 0:
@@ -535,8 +542,8 @@ class IVQueueManager:
                 if entry.scout_started_at:
                     elapsed = current_time - entry.scout_started_at
                     if elapsed > timeout_threshold:
-                        logger.warning(
-                            f"[x] Scout timeout: Pokemon {entry.pokemon_display} in {entry.area} "
+                        logger.opt(colors=True).warning(
+                            f"<red>[x]</red> Scout timeout: Pokemon {entry.pokemon_display} in {entry.area} "
                             f"[encounter_id: {entry.encounter_id}] - no IV after {int(elapsed)}s"
                         )
                         pokemon_display = entry.pokemon_display
@@ -544,11 +551,12 @@ class IVQueueManager:
                         entry.is_removed = True
                         del self._entries[key]
                         removed_count += 1
-                        # Update timeout stats by seen_type
-                        self._timeouts_by_type[seen_type] = self._timeouts_by_type.get(seen_type, 0) + 1
-                        self._timeouts_by_pokemon[seen_type][pokemon_display] = (
-                            self._timeouts_by_pokemon[seen_type].get(pokemon_display, 0) + 1
-                        )
+                        # Update timeout stats by seen_type (skip unknown types)
+                        if seen_type in self._seen_types:
+                            self._timeouts_by_type[seen_type] = self._timeouts_by_type.get(seen_type, 0) + 1
+                            self._timeouts_by_pokemon[seen_type][pokemon_display] = (
+                                self._timeouts_by_pokemon[seen_type].get(pokemon_display, 0) + 1
+                            )
 
         if removed_count > 0:
             logger.info(f"Cleaned up {removed_count} timed out scout entries")
