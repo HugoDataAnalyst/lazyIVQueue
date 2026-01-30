@@ -476,9 +476,9 @@ class IVQueueManager:
         total_timeouts = self._get_total_from_type_dict(self._timeouts_by_type)
 
         logger.info(
-            f"IVQueue Status: {pending} pending | {currently_scouting} scouting | "
-            f"{waiting_for_iv} awaiting IV | heap={heap_size} | "
-            f"Session: {total_queued} queued / {total_matches} matches / {total_early} early / {total_timeouts} timeouts"
+            f"IVQueue Status: <yellow>{pending}</yellow> pending | {currently_scouting} scouting | "
+            f"{waiting_for_iv} awaiting IV | <cyan>heap={heap_size}</cyan> | "
+            f"Session: {total_queued} queued / <green>{total_matches}</green> matches / {total_early} early / {total_timeouts} timeouts"
         )
 
         if queue_size > 0:
