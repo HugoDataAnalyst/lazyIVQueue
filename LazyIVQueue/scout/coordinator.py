@@ -154,8 +154,8 @@ class ScoutCoordinator:
             )
 
         finally:
-            # Mark scout complete and release semaphore slot
-            await queue.mark_scout_complete(entry, success)
+            # Mark scout as sent
+            await queue.mark_scout_sent(entry, success)
 
     async def stop(self) -> None:
         """Stop the coordinator gracefully."""
