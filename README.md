@@ -71,7 +71,7 @@ headers = ["HeaderName: Value"]
   - Celllist entries are always processed before ivlist entries, so only insert really important ones here
   - Uses 9x9 pattern (9 coordinates) to cover S2 level-15 cell
 - `scout.concurrency` - Max concurrent scout requests - Should match the number of scouts you have set in Dragonite
-- `scout.timeout_iv` - Seconds to wait for IV data before removing from queue (default: 180)
+- `scout.timeout_iv` - Seconds to wait for IV data before removing from queue - Liberating the scout to work (default: 180)
 - `geofences.expire_cache_seconds` - How long to cache geofences before expiring (default: 1800)
 - `geofences.refresh_cache_seconds` - How often to refresh geofences from Koji (default: 1800)
 - `auto_rarity` - Dynamic rarity settings (when `AUTO_RARITY=TRUE`):
