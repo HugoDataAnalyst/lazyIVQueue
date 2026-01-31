@@ -372,6 +372,8 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
         encounter_id=pokemon.encounter_id,
         lat=pokemon.latitude,
         lon=pokemon.longitude,
+        pokemon_id=pokemon.pokemon_id,
+        form=pokemon.form,
     )
     if not removed:
         # For nearby_cell: match by s2_cell_id + pokemon_id

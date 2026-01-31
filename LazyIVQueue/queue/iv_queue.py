@@ -176,19 +176,22 @@ class IVQueueManager:
             return True
 
     async def remove_by_match(
-        self, encounter_id: Optional[str], lat: float, lon: float
+        self, encounter_id: Optional[str], lat: float, lon: float,
+        pokemon_id: Optional[int] = None, form: Optional[int] = None
     ) -> Optional[QueueEntry]:
         """
         Remove entry matching by encounter_id (exact) or coordinates (70m proximity).
 
         Matching order:
         1. Exact encounter_id match (if provided)
-        2. Coordinate proximity match (70m threshold)
+        2. Coordinate proximity match (70m threshold) + pokemon_id match
 
         Args:
             encounter_id: Encounter ID to match (exact match, preferred)
             lat: Latitude for proximity match
             lon: Longitude for proximity match
+            pokemon_id: Pokemon ID to match (required for proximity match)
+            form: Pokemon form to match (optional, None matches any)
 
         Returns:
             Removed entry if found, None otherwise
@@ -206,10 +209,16 @@ class IVQueueManager:
                             was_scouting = removed.is_scouting
                         break
 
-            # Then try coordinate proximity match (fallback)
-            if not removed:
+            # Then try coordinate proximity match (fallback) - requires pokemon_id match
+            if not removed and pokemon_id is not None:
                 for key, entry in list(self._entries.items()):
                     if entry.is_removed:
+                        continue
+                    # Must match pokemon_id
+                    if entry.pokemon_id != pokemon_id:
+                        continue
+                    # Form match: if form provided, must match
+                    if form is not None and entry.form != form:
                         continue
                     if is_within_distance(
                         entry.lat, entry.lon, lat, lon, COORDINATE_MATCH_THRESHOLD_METERS
