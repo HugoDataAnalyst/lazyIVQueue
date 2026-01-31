@@ -211,7 +211,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
     # Skip unsupported seen_types (e.g., lure_wild, lure_pokestop)
     supported_seen_types = {"wild", "nearby_stop", "nearby_cell"}
     if seen_type not in supported_seen_types:
-        logger.warning(f"Skipping unsupported seen_type: {seen_type}")
+        logger.debug(f"Skipping unsupported seen_type: {seen_type}")
         return
 
     if seen_type == "nearby_cell":

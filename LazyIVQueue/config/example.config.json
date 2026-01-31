@@ -14,6 +14,6 @@
     },
     "scout": {
         "concurrency": 5,
-        "timeout_iv": 300
+        "timeout_iv": 120
     }
 }
