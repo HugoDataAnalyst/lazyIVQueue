@@ -1,5 +1,6 @@
 import os
 import json
+from webbrowser import get
 import dotenv
 
 from LazyIVQueue.utils.logger import logger
@@ -54,6 +55,15 @@ def get_env_int(name: str, default = None) -> Optional[int]:
         logger.error(f"❌ Invalid value for environment variable {name}: {value}. Using default: {default}")
         return default
 
+# Auto Rarity settings
+auto_rarity_enabled: bool = get_env_var("AUTO_RARITY", "FALSE").upper() == "TRUE"
+auto_rarity_config = config.get("auto_rarity", {})
+calibration_minutes: int = auto_rarity_config.get("calibration_minutes", 5)
+iv_threshold: int = auto_rarity_config.get("iv_threshold", 50)
+cell_threshold: int = auto_rarity_config.get("cell_threshold", 20)
+ranking_interval_seconds: int = auto_rarity_config.get("ranking_interval_seconds", 300)
+cleanup_interval_seconds: int = auto_rarity_config.get("cleanup_interval_seconds", 60)
+
 # Koji
 koji_bearer_token = get_env_var("KOJI_TOKEN")
 koji_ip = get_env_var("KOJI_IP", "127.0.0.1")
@@ -95,6 +105,114 @@ def parse_ivlist(raw_list: List[str]) -> Dict[str, int]:
 
 ivlist_parsed: Dict[str, int] = parse_ivlist(ivlist)
 celllist_parsed: Dict[str, int] = parse_ivlist(celllist)
+
+
+def reload_config() -> Dict[str, any]:
+    """
+    Hot-reload config.json values without restarting the application.
+
+    Reloadable values:
+    - ivlist, celllist (priority lists)
+    - auto_rarity settings (thresholds, intervals)
+    - scout concurrency and timeout
+    - geofence cache settings
+
+    NOT reloadable (require restart):
+    - Server host/port
+    - Dragonite API settings
+    - Koji credentials
+    - LOG_LEVEL, LOG_FILE
+    - AUTO_RARITY enable/disable
+    - FILTER_WITH_KOJI
+
+    Returns:
+        Dict with old and new values for changed settings
+    """
+    global config, ivlist, celllist, ivlist_parsed, celllist_parsed
+    global auto_rarity_config, calibration_minutes, iv_threshold, cell_threshold
+    global ranking_interval_seconds, cleanup_interval_seconds
+    global concurrency_scout, timeout_iv
+    global geofence_expire_cache_seconds, geofence_refresh_cache_seconds
+
+    changes = {}
+
+    # Reload config.json
+    new_config = load_config()
+
+    # Track ivlist changes
+    new_ivlist = new_config.get("ivlist", [])
+    if new_ivlist != ivlist:
+        changes["ivlist"] = {"old": ivlist, "new": new_ivlist}
+        ivlist = new_ivlist
+        ivlist_parsed = parse_ivlist(ivlist)
+
+    # Track celllist changes
+    new_celllist = new_config.get("celllist", [])
+    if new_celllist != celllist:
+        changes["celllist"] = {"old": celllist, "new": new_celllist}
+        celllist = new_celllist
+        celllist_parsed = parse_ivlist(celllist)
+
+    # Track auto_rarity changes
+    new_auto_rarity = new_config.get("auto_rarity", {})
+
+    new_calibration = new_auto_rarity.get("calibration_minutes", 5)
+    if new_calibration != calibration_minutes:
+        changes["calibration_minutes"] = {"old": calibration_minutes, "new": new_calibration}
+        calibration_minutes = new_calibration
+
+    new_iv_threshold = new_auto_rarity.get("iv_threshold", 50)
+    if new_iv_threshold != iv_threshold:
+        changes["iv_threshold"] = {"old": iv_threshold, "new": new_iv_threshold}
+        iv_threshold = new_iv_threshold
+
+    new_cell_threshold = new_auto_rarity.get("cell_threshold", 20)
+    if new_cell_threshold != cell_threshold:
+        changes["cell_threshold"] = {"old": cell_threshold, "new": new_cell_threshold}
+        cell_threshold = new_cell_threshold
+
+    new_ranking_interval = new_auto_rarity.get("ranking_interval_seconds", 300)
+    if new_ranking_interval != ranking_interval_seconds:
+        changes["ranking_interval_seconds"] = {"old": ranking_interval_seconds, "new": new_ranking_interval}
+        ranking_interval_seconds = new_ranking_interval
+
+    new_cleanup_interval = new_auto_rarity.get("cleanup_interval_seconds", 60)
+    if new_cleanup_interval != cleanup_interval_seconds:
+        changes["cleanup_interval_seconds"] = {"old": cleanup_interval_seconds, "new": new_cleanup_interval}
+        cleanup_interval_seconds = new_cleanup_interval
+
+    # Track scout settings changes
+    new_concurrency = new_config.get("scout", {}).get("concurrency", 5)
+    if new_concurrency != concurrency_scout:
+        changes["concurrency_scout"] = {"old": concurrency_scout, "new": new_concurrency}
+        concurrency_scout = new_concurrency
+
+    new_timeout = new_config.get("scout", {}).get("timeout_iv", 180)
+    if new_timeout != timeout_iv:
+        changes["timeout_iv"] = {"old": timeout_iv, "new": new_timeout}
+        timeout_iv = new_timeout
+
+    # Track geofence cache settings
+    new_expire = new_config.get("geofences", {}).get("expire_cache_seconds", 3600)
+    if new_expire != geofence_expire_cache_seconds:
+        changes["geofence_expire_cache_seconds"] = {"old": geofence_expire_cache_seconds, "new": new_expire}
+        geofence_expire_cache_seconds = new_expire
+
+    new_refresh = new_config.get("geofences", {}).get("refresh_cache_seconds", 3500)
+    if new_refresh != geofence_refresh_cache_seconds:
+        changes["geofence_refresh_cache_seconds"] = {"old": geofence_refresh_cache_seconds, "new": new_refresh}
+        geofence_refresh_cache_seconds = new_refresh
+
+    # Update the global config dict
+    config = new_config
+    auto_rarity_config = new_auto_rarity
+
+    if changes:
+        logger.info(f"Config reloaded with {len(changes)} change(s): {list(changes.keys())}")
+    else:
+        logger.info("Config reloaded - no changes detected")
+
+    return changes
 
 def get_pokemon_priority(pokemon_id: int, form: Optional[int]) -> Optional[int]:
     """

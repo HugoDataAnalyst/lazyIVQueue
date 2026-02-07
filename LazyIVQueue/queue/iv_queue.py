@@ -39,6 +39,9 @@ class QueueEntry:
     seen_type: str = field(compare=False, default="wild")  # "wild", "nearby_stop", or "nearby_cell"
     s2_cell_id: Optional[str] = field(compare=False, default=None)  # S2 level-15 cell ID (for nearby_cell)
 
+    # Source list for tracking
+    list_type: str = field(compare=False, default="unknown")  # "ivlist", "celllist", or "auto_rarity"
+
     # Tracking fields
     is_removed: bool = field(compare=False, default=False)
     is_scouting: bool = field(compare=False, default=False)
@@ -80,6 +83,7 @@ class IVQueueManager:
         self._heap: List[QueueEntry] = []
         self._entries: Dict[str, QueueEntry] = {}  # key -> entry for O(1) lookup
         self._scout_semaphore: Optional[asyncio.Semaphore] = None
+        self._current_concurrency: int = 0
         self._active_scouts: int = 0
         self._queue_lock: asyncio.Lock = asyncio.Lock()
         self._initialized: bool = False
@@ -112,8 +116,28 @@ class IVQueueManager:
             return
 
         self._scout_semaphore = asyncio.Semaphore(AppConfig.concurrency_scout)
+        self._current_concurrency = AppConfig.concurrency_scout
         self._initialized = True
         logger.info(f"IVQueue initialized with concurrency limit: {AppConfig.concurrency_scout}")
+
+    async def update_concurrency(self, new_concurrency: int) -> None:
+        """
+        Update scout concurrency limit by recreating the semaphore.
+
+        Note: This is a best-effort operation. Active scouts will continue
+        until they complete. New concurrency takes effect for new scouts.
+
+        Args:
+            new_concurrency: New concurrency limit
+        """
+        async with self._queue_lock:
+            old_concurrency = self._current_concurrency
+            # Create new semaphore with new limit
+            self._scout_semaphore = asyncio.Semaphore(new_concurrency)
+            self._current_concurrency = new_concurrency
+            logger.info(
+                f"Scout concurrency updated: {old_concurrency} -> {new_concurrency}"
+            )
 
     async def add(self, entry: QueueEntry) -> bool:
         """
@@ -137,12 +161,13 @@ class IVQueueManager:
             heapq.heappush(self._heap, entry)
             self._entries[key] = entry
 
-            # Update stats by seen_type
+            # Update stats by seen_type (skip unknown types)
             seen_type = entry.seen_type
-            self._queued_by_type[seen_type] = self._queued_by_type.get(seen_type, 0) + 1
-            self._queued_by_pokemon[seen_type][entry.pokemon_display] = (
-                self._queued_by_pokemon[seen_type].get(entry.pokemon_display, 0) + 1
-            )
+            if seen_type in self._seen_types:
+                self._queued_by_type[seen_type] = self._queued_by_type.get(seen_type, 0) + 1
+                self._queued_by_pokemon[seen_type][entry.pokemon_display] = (
+                    self._queued_by_pokemon[seen_type].get(entry.pokemon_display, 0) + 1
+                )
 
             logger.debug(
                 f"Added to queue: {entry.pokemon_display} in {entry.area} "
@@ -151,40 +176,63 @@ class IVQueueManager:
             return True
 
     async def remove_by_match(
-        self, encounter_id: Optional[str], lat: float, lon: float
+        self, encounter_id: Optional[str], lat: float, lon: float,
+        pokemon_id: Optional[int] = None, form: Optional[int] = None
     ) -> Optional[QueueEntry]:
         """
         Remove entry matching by encounter_id (exact) or coordinates (70m proximity).
 
         Matching order:
         1. Exact encounter_id match (if provided)
-        2. Coordinate proximity match (70m threshold)
+        2. Coordinate proximity match (70m threshold) + pokemon_id match
 
         Args:
             encounter_id: Encounter ID to match (exact match, preferred)
             lat: Latitude for proximity match
             lon: Longitude for proximity match
+            pokemon_id: Pokemon ID to match (required for proximity match)
+            form: Pokemon form to match (optional, None matches any)
 
         Returns:
             Removed entry if found, None otherwise
         """
+        removed = None
+        was_scouting = False
+
         async with self._queue_lock:
             # First try exact encounter_id match
             if encounter_id:
                 for key, entry in list(self._entries.items()):
                     if entry.encounter_id == encounter_id and not entry.is_removed:
-                        return self._remove_entry(key)
+                        removed = self._remove_entry(key)
+                        if removed:
+                            was_scouting = removed.is_scouting
+                        break
 
-            # Then try coordinate proximity match (fallback)
-            for key, entry in list(self._entries.items()):
-                if entry.is_removed:
-                    continue
-                if is_within_distance(
-                    entry.lat, entry.lon, lat, lon, COORDINATE_MATCH_THRESHOLD_METERS
-                ):
-                    return self._remove_entry(key)
+            # Then try coordinate proximity match (fallback) - requires pokemon_id match
+            if not removed and pokemon_id is not None:
+                for key, entry in list(self._entries.items()):
+                    if entry.is_removed:
+                        continue
+                    # Must match pokemon_id
+                    if entry.pokemon_id != pokemon_id:
+                        continue
+                    # Form match: if form provided, must match
+                    if form is not None and entry.form != form:
+                        continue
+                    if is_within_distance(
+                        entry.lat, entry.lon, lat, lon, COORDINATE_MATCH_THRESHOLD_METERS
+                    ):
+                        removed = self._remove_entry(key)
+                        if removed:
+                            was_scouting = removed.is_scouting
+                        break
 
-            return None
+        # Release semaphore outside the lock if entry was scouting
+        if was_scouting:
+            self._scout_semaphore.release()
+
+        return removed
 
     async def remove_by_cell_match(
         self, pokemon_id: int, form: Optional[int], s2_cell_id: str
@@ -203,6 +251,9 @@ class IVQueueManager:
         Returns:
             Removed entry if found, None otherwise
         """
+        removed = None
+        was_scouting = False
+
         async with self._queue_lock:
             for key, entry in list(self._entries.items()):
                 if entry.is_removed:
@@ -220,18 +271,37 @@ class IVQueueManager:
                 if not entry.is_scouting and not entry.was_scouted:
                     continue
                 # Found match - remove only this one
-                return self._remove_entry(key)
+                removed = self._remove_entry(key)
+                if removed:
+                    was_scouting = removed.is_scouting
+                break
 
-            return None
+        # Release semaphore outside the lock if entry was scouting
+        if was_scouting:
+            self._scout_semaphore.release()
+
+        return removed
 
     def _remove_entry(self, key: str) -> Optional[QueueEntry]:
-        """Remove entry by key (internal, must hold lock). Does not update stats."""
+        """
+        Remove entry by key (internal, must hold lock).
+
+        If the entry was scouting (is_scouting=True), the caller MUST release
+        the semaphore after releasing the queue lock.
+
+        Returns:
+            The removed entry (check entry.is_scouting to know if semaphore needs release)
+        """
         if key not in self._entries:
             return None
 
         entry = self._entries.pop(key)
         # Mark as removed for lazy deletion from heap
         entry.is_removed = True
+
+        # Decrement active scouts if this entry was holding a semaphore slot
+        if entry.is_scouting:
+            self._active_scouts = max(0, self._active_scouts - 1)
 
         logger.debug(
             f"Removed from queue: {entry.pokemon_display} "
@@ -241,6 +311,8 @@ class IVQueueManager:
 
     def record_match(self, pokemon_display: str, seen_type: str) -> None:
         """Record a successful IV match (after scouting)."""
+        if seen_type not in self._seen_types:
+            return
         self._matches_by_type[seen_type] = self._matches_by_type.get(seen_type, 0) + 1
         self._matches_by_pokemon[seen_type][pokemon_display] = (
             self._matches_by_pokemon[seen_type].get(pokemon_display, 0) + 1
@@ -248,6 +320,8 @@ class IVQueueManager:
 
     def record_early_iv(self, pokemon_display: str, seen_type: str) -> None:
         """Record an early IV (received before scouting)."""
+        if seen_type not in self._seen_types:
+            return
         self._early_iv_by_type[seen_type] = self._early_iv_by_type.get(seen_type, 0) + 1
         self._early_iv_by_pokemon[seen_type][pokemon_display] = (
             self._early_iv_by_pokemon[seen_type].get(pokemon_display, 0) + 1
@@ -255,6 +329,8 @@ class IVQueueManager:
 
     def record_timeout(self, pokemon_display: str, seen_type: str) -> None:
         """Record a scout timeout."""
+        if seen_type not in self._seen_types:
+            return
         self._timeouts_by_type[seen_type] = self._timeouts_by_type.get(seen_type, 0) + 1
         self._timeouts_by_pokemon[seen_type][pokemon_display] = (
             self._timeouts_by_pokemon[seen_type].get(pokemon_display, 0) + 1
@@ -309,26 +385,23 @@ class IVQueueManager:
             self._scout_semaphore.release()
             return None
 
-    async def mark_scout_complete(self, entry: QueueEntry, success: bool) -> None:
+    async def mark_scout_sent(self, entry: QueueEntry, success: bool) -> None:
         """
-        Mark a scout operation as complete and release semaphore slot.
+        Mark a scout request as sent (API call completed).
 
-        Note: This does NOT remove the entry from the queue. The entry stays
-        in the queue until a matching IV webhook arrives (remove_by_match).
-        This ensures we can properly match returning IV data.
+        Note: This does NOT release the semaphore. The semaphore stays held
+        until the entry is removed (match found, early IV, or timeout).
+        This ensures we limit the number of "in-flight" scouts.
 
         Args:
-            entry: The queue entry that was being scouted
-            success: Whether the scout was successful
+            entry: The queue entry that was scouted
+            success: Whether the scout API call was successful
         """
         async with self._queue_lock:
-            # Mark entry as no longer actively scouting, but keep it in queue
-            # for matching with incoming IV webhooks
-            entry.is_scouting = False
-            entry.was_scouted = True  # Mark as scouted, waiting for IV match
-            self._active_scouts = max(0, self._active_scouts - 1)
-
-        self._scout_semaphore.release()
+            # Mark entry as scouted (API call sent), waiting for IV match
+            # Keep is_scouting=True to indicate semaphore is still held
+            entry.was_scouted = True
+            # Note: is_scouting stays True, semaphore stays held
 
         status = "sent" if success else "failed"
         logger.debug(
@@ -438,12 +511,13 @@ class IVQueueManager:
     def log_queue_status(self) -> None:
         """Log current queue status with next 10 entries preview."""
         queue_size = len(self._entries)
-        active = self._active_scouts
-        available = self.get_available_slots()
+        heap_size = len(self._heap)
 
-        # Count entries waiting for IV match
-        waiting_for_iv = sum(1 for e in self._entries.values() if e.was_scouted and not e.is_removed)
-        pending = queue_size - waiting_for_iv
+        # Count entries by state:
+        # - awaiting_iv: is_scouting=True (scout sent, holding semaphore, waiting for IV)
+        # - pending: is_scouting=False (waiting for available slot)
+        awaiting_iv = sum(1 for e in self._entries.values() if e.is_scouting and not e.is_removed)
+        pending = queue_size - awaiting_iv
 
         # Calculate totals
         total_queued = self._get_total_from_type_dict(self._queued_by_type)
@@ -451,12 +525,10 @@ class IVQueueManager:
         total_early = self._get_total_from_type_dict(self._early_iv_by_type)
         total_timeouts = self._get_total_from_type_dict(self._timeouts_by_type)
 
-        logger.info(
-            f"IVQueue Status: {pending} pending | "
-            f"{waiting_for_iv} awaiting IV | "
-            f"{active} active scouts | "
-            f"{available} slots available | "
-            f"Session: {total_queued} queued / {total_matches} matches / {total_early} early / {total_timeouts} timeouts"
+        logger.opt(colors=True).info(
+            f"<magenta>IVQueue Status:</magenta> <yellow>{pending} pending</yellow> | "
+            f"<blue>{awaiting_iv} awaiting IV</blue> | heap={heap_size} | "
+            f"<cyan>Session: {total_queued} queued</cyan> / <green>{total_matches} matches</green> / <magenta>{total_early} early</magenta> / <red>{total_timeouts} timeouts</red>"
         )
 
         if queue_size > 0:
@@ -478,16 +550,34 @@ class IVQueueManager:
         """
         current_time = int(time.time())
         removed_count = 0
+        semaphores_to_release = 0
 
         async with self._queue_lock:
             for key, entry in list(self._entries.items()):
                 if entry.disappear_time and entry.disappear_time < current_time:
+                    state = "awaiting IV" if entry.is_scouting else "pending"
+                    logger.opt(colors=True).debug(
+                        f"<red>[x]</red> Expired: Pokemon {entry.pokemon_display} in {entry.area} "
+                        f"[encounter_id: {entry.encounter_id}] - despawned while {state}"
+                    )
+
+                    # Track if we need to release semaphore
+                    if entry.is_scouting:
+                        semaphores_to_release += 1
+                        self._active_scouts = max(0, self._active_scouts - 1)
+
                     entry.is_removed = True
                     del self._entries[key]
                     removed_count += 1
 
+        # Release semaphores outside the lock
+        for _ in range(semaphores_to_release):
+            self._scout_semaphore.release()
+
         if removed_count > 0:
-            logger.debug(f"Cleaned up {removed_count} expired queue entries")
+            logger.opt(colors=True).info(
+                f"<red>[x]</red> Cleaned up {removed_count} expired queue entries"
+            )
 
         return removed_count
 
@@ -506,6 +596,7 @@ class IVQueueManager:
         current_time = time.time()
         timeout_threshold = AppConfig.timeout_iv
         removed_count = 0
+        semaphores_to_release = 0
 
         async with self._queue_lock:
             for key, entry in list(self._entries.items()):
@@ -513,22 +604,35 @@ class IVQueueManager:
                 if entry.scout_started_at:
                     elapsed = current_time - entry.scout_started_at
                     if elapsed > timeout_threshold:
-                        logger.warning(
-                            f"[x] Scout timeout: Pokemon {entry.pokemon_display} in {entry.area} "
+                        logger.opt(colors=True).debug(
+                            f"<red>[x]</red> Scout timeout: Pokemon {entry.pokemon_display} in {entry.area} "
                             f"[encounter_id: {entry.encounter_id}] - no IV after {int(elapsed)}s"
                         )
                         pokemon_display = entry.pokemon_display
                         seen_type = entry.seen_type
+
+                        # Track if we need to release semaphore
+                        if entry.is_scouting:
+                            semaphores_to_release += 1
+                            self._active_scouts = max(0, self._active_scouts - 1)
+
                         entry.is_removed = True
                         del self._entries[key]
                         removed_count += 1
-                        # Update timeout stats by seen_type
-                        self._timeouts_by_type[seen_type] = self._timeouts_by_type.get(seen_type, 0) + 1
-                        self._timeouts_by_pokemon[seen_type][pokemon_display] = (
-                            self._timeouts_by_pokemon[seen_type].get(pokemon_display, 0) + 1
-                        )
+                        # Update timeout stats by seen_type (skip unknown types)
+                        if seen_type in self._seen_types:
+                            self._timeouts_by_type[seen_type] = self._timeouts_by_type.get(seen_type, 0) + 1
+                            self._timeouts_by_pokemon[seen_type][pokemon_display] = (
+                                self._timeouts_by_pokemon[seen_type].get(pokemon_display, 0) + 1
+                            )
+
+        # Release semaphores outside the lock
+        for _ in range(semaphores_to_release):
+            self._scout_semaphore.release()
 
         if removed_count > 0:
-            logger.info(f"Cleaned up {removed_count} timed out scout entries")
+            logger.opt(colors=True).info(
+                f"<red>[x]</red> Cleaned up {removed_count} timed out scout entries"
+            )
 
         return removed_count

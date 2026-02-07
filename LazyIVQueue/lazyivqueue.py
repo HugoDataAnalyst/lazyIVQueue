@@ -88,6 +88,8 @@ class LazyIVQueueApp:
         logger.info("LazyIVQueue started successfully")
         logger.info(f"  Server: http://{AppConfig.lazyivqueue_host}:{AppConfig.lazyivqueue_port}")
         logger.info(f"  Webhook: http://{AppConfig.lazyivqueue_host}:{AppConfig.lazyivqueue_port}/webhook")
+        logger.info(f"  Census: http://{AppConfig.lazyivqueue_host}:{AppConfig.lazyivqueue_port}/webhook/census")
+        logger.info(f"  Auto Rarity: {AppConfig.auto_rarity_enabled}")
         logger.info(f"  Scout concurrency: {AppConfig.concurrency_scout}")
         logger.info(f"  IV list entries: {len(AppConfig.ivlist)}")
         logger.info(f"  Cell list entries: {len(AppConfig.celllist)}")
