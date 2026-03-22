@@ -93,6 +93,8 @@ class LazyIVQueueApp:
         logger.info(f"  Scout concurrency: {AppConfig.concurrency_scout}")
         logger.info(f"  IV list entries: {len(AppConfig.ivlist)}")
         logger.info(f"  Cell list entries: {len(AppConfig.celllist)}")
+        logger.info(f"  Deny list entries: {len(AppConfig.denylist)}")
+        logger.info("-" * 60)
         if AppConfig.ivlist:
             logger.info(f"  IV Priority order: {', '.join(AppConfig.ivlist[:5])}...")
         logger.info("-" * 60)
