@@ -407,6 +407,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
                 f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
                 f"({pokemon.iv_percent}%)"
             )
+            queue.log_iv_per_hour()
         else:
             queue.record_early_iv(pokemon.pokemon_display, removed.seen_type)
             logger.opt(colors=True).success(

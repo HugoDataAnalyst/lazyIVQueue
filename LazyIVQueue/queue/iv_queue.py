@@ -101,6 +101,9 @@ class IVQueueManager:
         self._early_iv_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
         self._timeouts_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
 
+        # Session start time for IV/hour rate calculation
+        self._session_start: float = time.time()
+
     @classmethod
     async def get_instance(cls) -> IVQueueManager:
         """Get or create singleton instance."""
@@ -447,6 +450,7 @@ class IVQueueManager:
             "active_scouts": self._active_scouts,
             "max_concurrency": AppConfig.concurrency_scout,
             "available_slots": self.get_available_slots(),
+            "iv_per_hour": self._compute_iv_per_hour(),
             "session": {
                 "total_queued": self._build_type_stats(self._queued_by_type),
                 "total_matches": self._build_type_stats(self._matches_by_type),
@@ -507,6 +511,31 @@ class IVQueueManager:
             })
 
         return preview
+
+    def _compute_iv_per_hour(self) -> Dict[str, Any]:
+        """Compute IV/hour rates since session start (matches only)."""
+        elapsed_hours = max((time.time() - self._session_start) / 3600, 1 / 3600)  # floor at 1s
+
+        def rate(seen_types: list) -> float:
+            match_count = sum(self._matches_by_type.get(t, 0) for t in seen_types)
+            return round(match_count / elapsed_hours, 2)
+
+        return {
+            "nearby_cell": rate(["nearby_cell"]),
+            "normal": rate(["wild", "nearby_stop"]),
+            "combined": rate(["wild", "nearby_stop", "nearby_cell"]),
+            "elapsed_hours": round(elapsed_hours, 4),
+        }
+
+    def log_iv_per_hour(self) -> None:
+        """Log current IV/hour rates as a standalone entry."""
+        iv_hr = self._compute_iv_per_hour()
+        logger.opt(colors=True).info(
+            f"<magenta>[IV/hr]</magenta> "
+            f"combined=<blue>{iv_hr['combined']}</blue> | "
+            f"normal=<cyan>{iv_hr['normal']}</cyan> | "
+            f"cell=<red>{iv_hr['nearby_cell']}</red>"
+        )
 
     def log_queue_status(self) -> None:
         """Log current queue status with next 10 entries preview."""
