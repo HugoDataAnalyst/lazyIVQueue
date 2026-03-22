@@ -256,6 +256,9 @@ class LazyIVQueueServer:
                     "count": len(AppConfig.ivlist),
                     "top_5": AppConfig.ivlist[:5] if AppConfig.ivlist else [],
                 },
+                "denylist": {
+                    "count": len(AppConfig.denylist),
+                },
                 "geofences": {
                     "expire_cache_seconds": AppConfig.geofence_expire_cache_seconds,
                     "refresh_cache_seconds": AppConfig.geofence_refresh_cache_seconds,

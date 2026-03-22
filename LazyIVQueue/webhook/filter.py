@@ -175,6 +175,15 @@ def is_in_any_list(pokemon: PokemonData) -> bool:
     return matches_iv or matches_cell
 
 
+def is_in_denylist(pokemon: PokemonData) -> bool:
+    """Check if Pokemon matches the denylist (should not be scouted)."""
+    if pokemon.form is not None:
+        key = f"{pokemon.pokemon_id}:{pokemon.form}"
+        if key in AppConfig.denylist_parsed:
+            return True
+    return str(pokemon.pokemon_id) in AppConfig.denylist_parsed
+
+
 async def process_pokemon_webhook(raw_data: Dict[str, Any]) -> None:
     """
     Main entry point for processing Pokemon webhooks.
@@ -212,6 +221,11 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
     supported_seen_types = {"wild", "nearby_stop", "nearby_cell"}
     if seen_type not in supported_seen_types:
         logger.debug(f"Skipping unsupported seen_type: {seen_type}")
+        return
+
+    # Denylist check: reject before any priority resolution (covers ivlist, celllist, auto_rarity)
+    if is_in_denylist(pokemon):
+        logger.trace(f"Pokemon {pokemon.pokemon_display} in denylist, skipping")
         return
 
     if seen_type == "nearby_cell":
