@@ -90,6 +90,7 @@ log_file = get_env_var("LOG_FILE", "FALSE").upper() == "TRUE"
 # Lower index = higher priority (first item is highest priority)
 ivlist: List[str] = config.get("ivlist", [])
 celllist: List[str] = config.get("celllist", [])
+denylist: List[str] = config.get("denylist", [])
 timeout_iv: int = config.get("scout", {}).get("timeout_iv", 180)
 
 def parse_ivlist(raw_list: List[str]) -> Dict[str, int]:
@@ -105,6 +106,7 @@ def parse_ivlist(raw_list: List[str]) -> Dict[str, int]:
 
 ivlist_parsed: Dict[str, int] = parse_ivlist(ivlist)
 celllist_parsed: Dict[str, int] = parse_ivlist(celllist)
+denylist_parsed: Dict[str, int] = parse_ivlist(denylist)
 
 
 def reload_config() -> Dict[str, any]:
@@ -128,7 +130,7 @@ def reload_config() -> Dict[str, any]:
     Returns:
         Dict with old and new values for changed settings
     """
-    global config, ivlist, celllist, ivlist_parsed, celllist_parsed
+    global config, ivlist, celllist, ivlist_parsed, celllist_parsed, denylist, denylist_parsed
     global auto_rarity_config, calibration_minutes, iv_threshold, cell_threshold
     global ranking_interval_seconds, cleanup_interval_seconds
     global concurrency_scout, timeout_iv
@@ -152,6 +154,13 @@ def reload_config() -> Dict[str, any]:
         changes["celllist"] = {"old": celllist, "new": new_celllist}
         celllist = new_celllist
         celllist_parsed = parse_ivlist(celllist)
+
+    # Track denylist changes
+    new_denylist = new_config.get("denylist", [])
+    if new_denylist != denylist:
+        changes["denylist"] = {"old": denylist, "new": new_denylist}
+        denylist = new_denylist
+        denylist_parsed = parse_ivlist(denylist)
 
     # Track auto_rarity changes
     new_auto_rarity = new_config.get("auto_rarity", {})
