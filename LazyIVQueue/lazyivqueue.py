@@ -101,6 +101,9 @@ class LazyIVQueueApp:
         if AppConfig.celllist:
             logger.info(f"  Cell Priority order: {', '.join(AppConfig.celllist[:5])}...")
         logger.info("-" * 60)
+        if AppConfig.denylist:
+            logger.info(f"  Deny list order: {', '.join(AppConfig.denylist[:5])}...")
+        logger.info("-" * 60)
 
     async def _cleanup_loop(self) -> None:
         """Periodically clean up expired and timed-out queue entries."""
