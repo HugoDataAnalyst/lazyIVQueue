@@ -1,8 +1,15 @@
 """LazyIVQueue API Server - Single HTTP server for webhooks, stats, health, and management."""
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import time
 from typing import Optional, Set, List
 from aiohttp import web
+import jinja2
 
 from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.webhook.filter import process_pokemon_webhook, process_census_webhook
@@ -10,6 +17,39 @@ from LazyIVQueue.rarity.manager import RarityManager
 from LazyIVQueue.queue.iv_queue import IVQueueManager
 import LazyIVQueue.config as AppConfig
 from LazyIVQueue.config import reload_config
+from LazyIVQueue.api.statspage import render_stats_page
+
+# Stable secret generated once per process (tokens invalidate on restart)
+_SESSION_SECRET = secrets.token_bytes(32)
+_SESSION_MAX_AGE = 86400  # 24 hours
+
+# Routes that require admin auth when ADMIN_PASSWORD is set
+_ADMIN_ROUTES = {"/config/edit", "/config/raw", "/reload"}
+
+
+def _sign_token(payload: str) -> str:
+    """Create an HMAC-signed token: payload.signature"""
+    sig = hmac.new(_SESSION_SECRET, payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{sig}"
+
+
+def _verify_token(token: str) -> Optional[str]:
+    """Verify token signature and expiry. Returns payload or None."""
+    parts = token.rsplit(".", 1)
+    if len(parts) != 2:
+        return None
+    payload, sig = parts
+    expected = hmac.new(_SESSION_SECRET, payload.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return None
+    # Check expiry (payload is "admin:<timestamp>")
+    try:
+        _, ts = payload.split(":", 1)
+        if time.time() - float(ts) > _SESSION_MAX_AGE:
+            return None
+    except (ValueError, TypeError):
+        return None
+    return payload
 
 
 class LazyIVQueueServer:
@@ -174,6 +214,15 @@ class LazyIVQueueServer:
                 if pokemon_data:
                     await process_census_webhook(pokemon_data)
 
+    async def handle_dashboard(self, request: web.Request) -> web.Response:
+        """Serve the HTML stats dashboard."""
+        try:
+            html = await render_stats_page()
+            return web.Response(text=html, content_type="text/html")
+        except Exception as e:
+            logger.error(f"Error rendering stats dashboard: {e}")
+            return web.Response(status=500, text="Internal Error")
+
     async def handle_health(self, request: web.Request) -> web.Response:
         """Health check endpoint."""
         return web.json_response({"status": "healthy"})
@@ -276,17 +325,10 @@ class LazyIVQueueServer:
     async def handle_reload(self, request: web.Request) -> web.Response:
         """
         Hot-reload config.json values without restarting.
-
-        Reloadable:
-        - ivlist, celllist
-        - auto_rarity settings (thresholds, intervals)
-        - scout concurrency and timeout
-        - geofence cache settings
-
-        NOT reloadable (require restart):
-        - Server host/port, Dragonite API, Koji credentials
-        - LOG_LEVEL, AUTO_RARITY enable/disable, FILTER_WITH_KOJI
         """
+        denied = self._require_admin(request)
+        if denied:
+            return denied
         try:
             # Reload config values
             changes = reload_config()
@@ -310,9 +352,153 @@ class LazyIVQueueServer:
             logger.error(f"Error reloading config: {e}")
             return web.json_response({"error": str(e)}, status=500)
 
+    async def handle_config_editor(self, request: web.Request) -> web.Response:
+        """Serve the config editor HTML page."""
+        denied = self._require_admin(request)
+        if denied:
+            return denied
+        try:
+            template_dir = os.path.join(os.path.dirname(__file__), "templates")
+            env = jinja2.Environment(
+                loader=jinja2.FileSystemLoader(template_dir),
+                autoescape=True,
+            )
+            template = env.get_template("config_editor.html")
+            html = template.render()
+            return web.Response(text=html, content_type="text/html")
+        except Exception as e:
+            logger.error(f"Error rendering config editor: {e}")
+            return web.Response(status=500, text="Internal Error")
+
+    async def handle_config_raw(self, request: web.Request) -> web.Response:
+        """Return raw config.json contents."""
+        denied = self._require_admin(request)
+        if denied:
+            return denied
+        try:
+            with open(AppConfig.CONFIG_PATH, "r") as f:
+                config_data = json.load(f)
+            return web.json_response(config_data)
+        except Exception as e:
+            logger.error(f"Error reading config.json: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def handle_config_save(self, request: web.Request) -> web.Response:
+        """Save new config.json and auto-reload."""
+        denied = self._require_admin(request)
+        if denied:
+            return denied
+        try:
+            new_config = await request.json()
+
+            # Validate it's a proper dict with expected keys
+            if not isinstance(new_config, dict):
+                return web.json_response({"error": "Config must be a JSON object"}, status=400)
+
+            # Write to file
+            with open(AppConfig.CONFIG_PATH, "w") as f:
+                json.dump(new_config, f, indent=4)
+            logger.info("Config.json saved via editor")
+
+            # Auto-reload
+            changes = reload_config()
+
+            if "concurrency_scout" in changes:
+                queue = await IVQueueManager.get_instance()
+                await queue.update_concurrency(changes["concurrency_scout"]["new"])
+                logger.info(
+                    f"Scout concurrency updated: {changes['concurrency_scout']['old']} -> "
+                    f"{changes['concurrency_scout']['new']}"
+                )
+
+            return web.json_response({
+                "status": "success",
+                "changes_count": len(changes),
+                "changes": changes,
+            })
+        except json.JSONDecodeError as e:
+            return web.json_response({"error": f"Invalid JSON: {e}"}, status=400)
+        except Exception as e:
+            logger.error(f"Error saving config: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
+    # ── Admin auth helpers ──
+
+    def _is_admin_auth_enabled(self) -> bool:
+        return bool(AppConfig.admin_password)
+
+    def _is_authenticated(self, request: web.Request) -> bool:
+        """Check if the request carries a valid admin session cookie."""
+        token = request.cookies.get("lazyiv_session")
+        if not token:
+            return False
+        return _verify_token(token) is not None
+
+    def _require_admin(self, request: web.Request) -> Optional[web.Response]:
+        """Return a redirect response if auth is required but missing, else None."""
+        if not self._is_admin_auth_enabled():
+            return None
+        if self._is_authenticated(request):
+            return None
+        # For API calls (PUT/POST or Accept: application/json) return 401
+        if request.method in ("PUT", "POST") or "application/json" in request.headers.get("Accept", ""):
+            return web.json_response({"error": "Authentication required"}, status=401)
+        # For browser requests redirect to login
+        raise web.HTTPFound(f"/login?next={request.path}")
+
+    async def handle_login_page(self, request: web.Request) -> web.Response:
+        """Show the login form."""
+        if not self._is_admin_auth_enabled():
+            raise web.HTTPFound("/config/edit")
+        next_url = request.query.get("next", "/config/edit")
+        template_dir = os.path.join(os.path.dirname(__file__), "templates")
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(template_dir),
+            autoescape=True,
+        )
+        template = env.get_template("login.html")
+        html = template.render(error=None, next_url=next_url)
+        return web.Response(text=html, content_type="text/html")
+
+    async def handle_login_submit(self, request: web.Request) -> web.Response:
+        """Validate password and set session cookie."""
+        if not self._is_admin_auth_enabled():
+            raise web.HTTPFound("/config/edit")
+        data = await request.post()
+        password = data.get("password", "")
+        next_url = data.get("next", "/config/edit")
+        # Constant-time comparison
+        if hmac.compare_digest(password, AppConfig.admin_password):
+            token = _sign_token(f"admin:{time.time()}")
+            resp = web.HTTPFound(next_url)
+            resp.set_cookie(
+                "lazyiv_session", token,
+                max_age=_SESSION_MAX_AGE,
+                httponly=True,
+                samesite="Lax",
+            )
+            logger.info(f"Admin login from {request.remote}")
+            return resp
+        # Wrong password
+        template_dir = os.path.join(os.path.dirname(__file__), "templates")
+        env = jinja2.Environment(
+            loader=jinja2.FileSystemLoader(template_dir),
+            autoescape=True,
+        )
+        template = env.get_template("login.html")
+        html = template.render(error="Invalid password", next_url=next_url)
+        return web.Response(text=html, content_type="text/html")
+
+    async def handle_logout(self, request: web.Request) -> web.Response:
+        """Clear session cookie and redirect to stats."""
+        resp = web.HTTPFound("/")
+        resp.del_cookie("lazyiv_session")
+        return resp
+
     async def start(self) -> None:
         """Start the API server."""
         self._app = web.Application()
+        self._app.router.add_get("/", self.handle_dashboard)
         self._app.router.add_post("/webhook", self.handle_webhook)
         self._app.router.add_post("/webhook/census", self.handle_census)
         self._app.router.add_get("/health", self.handle_health)
@@ -320,6 +506,12 @@ class LazyIVQueueServer:
         self._app.router.add_get("/queue", self.handle_queue_preview)
         self._app.router.add_get("/rarity", self.handle_rarity)
         self._app.router.add_get("/config", self.handle_config)
+        self._app.router.add_get("/login", self.handle_login_page)
+        self._app.router.add_post("/login", self.handle_login_submit)
+        self._app.router.add_get("/logout", self.handle_logout)
+        self._app.router.add_get("/config/edit", self.handle_config_editor)
+        self._app.router.add_get("/config/raw", self.handle_config_raw)
+        self._app.router.add_put("/config/raw", self.handle_config_save)
         self._app.router.add_post("/reload", self.handle_reload)
 
         self._runner = web.AppRunner(self._app)
@@ -329,6 +521,7 @@ class LazyIVQueueServer:
         await self._site.start()
 
         logger.info(f"LazyIVQueue server started on http://{self.host}:{self.port}")
+        logger.debug(f"  GET  /               - Stats dashboard")
         logger.debug(f"  POST /webhook        - Receive Golbat webhooks (secured)")
         logger.debug(f"  POST /webhook/census - Receive ALL spawns for rarity tracking")
         logger.debug(f"  GET  /health         - Health check")
@@ -336,12 +529,19 @@ class LazyIVQueueServer:
         logger.debug(f"  GET  /queue          - Queue preview (?count=N)")
         logger.debug(f"  GET  /rarity         - Auto Rarity rankings (?area=X&limit=N)")
         logger.debug(f"  GET  /config         - Configuration summary")
+        logger.debug(f"  GET  /config/edit    - Config editor UI")
+        logger.debug(f"  GET  /config/raw     - Raw config.json")
+        logger.debug(f"  PUT  /config/raw     - Save config.json + auto-reload")
         logger.debug(f"  POST /reload         - Hot-reload config.json")
 
         if self.allowed_ips:
             logger.info(f"Webhook IP whitelist: {len(self.allowed_ips)} IPs allowed")
         if self.auth_header:
             logger.info("Webhook header authentication enabled")
+        if self._is_admin_auth_enabled():
+            logger.info("Admin authentication enabled (ADMIN_PASSWORD set)")
+        else:
+            logger.warning("Admin authentication DISABLED — config editor is open to all")
 
     async def shutdown(self) -> None:
         """Graceful shutdown."""

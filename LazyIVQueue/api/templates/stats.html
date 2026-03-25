@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>IVX Stats</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        min-height: 100vh;
+        padding: 1.5rem;
+      }
+      h1 {
+        text-align: center;
+        margin-bottom: 1rem;
+        font-size: 1.6rem;
+        color: #38bdf8;
+      }
+      .error {
+        background: #7f1d1d;
+        color: #fca5a5;
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+      .raw-content {
+        background: #1e293b;
+        padding: 1.5rem;
+        border-radius: 8px;
+        max-width: 1100px;
+        margin: 0 auto;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: "Cascadia Code", "Fira Code", monospace;
+        font-size: 0.9rem;
+        line-height: 1.6;
+        border: 1px solid #334155;
+      }
+      .section-heading {
+        color: #38bdf8;
+        font-weight: 600;
+        font-size: 1.05rem;
+        margin: 1rem auto 0.4rem;
+        max-width: 1100px;
+        padding-left: 0.25rem;
+      }
+      .section-heading.depth-1 { font-size: 0.95rem; color: #7dd3fc; }
+      .section-heading.depth-2 { font-size: 0.9rem; color: #93c5fd; }
+      .section-heading.depth-3 { font-size: 0.85rem; color: #a5b4fc; }
+      table {
+        width: 100%;
+        max-width: 1100px;
+        margin: 0.25rem auto 1rem;
+        border-collapse: collapse;
+        background: #1e293b;
+        border-radius: 8px;
+        overflow: hidden;
+        border: 1px solid #334155;
+      }
+      th, td {
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+        border-bottom: 1px solid #334155;
+      }
+      th {
+        background: #0f172a;
+        color: #38bdf8;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+      }
+      th:hover { color: #7dd3fc; }
+      th .sort-arrow { font-size: 0.65rem; margin-left: 0.3rem; }
+      td {
+        font-family: "Cascadia Code", "Fira Code", monospace;
+        font-size: 0.85rem;
+      }
+      td.key-col {
+        color: #94a3b8;
+        font-weight: 600;
+        white-space: nowrap;
+        width: 1%;
+      }
+      .poke-sprite {
+        width: 28px;
+        height: 28px;
+        vertical-align: middle;
+        margin-right: 0.35rem;
+      }
+      .poke-label {
+        display: inline-flex;
+        align-items: center;
+      }
+      .table-wrap { max-width: 1100px; margin: 0.25rem auto 1rem; }
+      .table-wrap table { margin: 0; }
+      .table-wrap tbody tr.hidden-row { display: none; }
+      .table-wrap.expanded tbody tr.hidden-row { display: table-row; }
+      .expand-btn {
+        display: block;
+        width: 100%;
+        padding: 0.45rem;
+        background: #0f172a;
+        color: #38bdf8;
+        border: 1px solid #334155;
+        border-top: none;
+        border-radius: 0 0 8px 8px;
+        font-size: 0.8rem;
+        font-weight: 600;
+        cursor: pointer;
+        text-align: center;
+        letter-spacing: 0.03em;
+      }
+      .expand-btn:hover { background: #1e293b; color: #7dd3fc; }
+      .refresh-btn {
+        display: block;
+        margin: 2rem auto 0;
+        padding: 0.6rem 1.5rem;
+        background: #38bdf8;
+        color: #0f172a;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .refresh-btn:hover { background: #7dd3fc; }
+      .timestamp {
+        text-align: center;
+        color: #64748b;
+        font-size: 0.8rem;
+        margin-top: 1rem;
+      }
+      /* Layout grid */
+      .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 0.75rem;
+        max-width: 1100px;
+        margin: 0 auto 1rem;
+      }
+      .stat-card {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+      }
+      .stat-card .card-title {
+        color: #38bdf8; font-size: 0.75rem; text-transform: uppercase;
+        letter-spacing: 0.03em; margin-bottom: 0.25rem;
+      }
+      .stat-card .card-value {
+        font-family: "Cascadia Code", "Fira Code", monospace;
+        font-size: 1.4rem; font-weight: 700; color: #e2e8f0;
+      }
+      /* Pokemon type tabs */
+      .poke-tabs { display: flex; gap: 0; max-width: 1100px; margin: 0 auto; }
+      .poke-tab-btn {
+        padding: 0.45rem 1rem; background: #0f172a; color: #94a3b8;
+        border: 1px solid #334155; border-bottom: none; cursor: pointer;
+        font-size: 0.8rem; font-weight: 600; border-radius: 6px 6px 0 0;
+        transition: all 0.15s;
+      }
+      .poke-tab-btn:hover { color: #e2e8f0; }
+      .poke-tab-btn.active { background: #1e293b; color: #38bdf8; }
+      .poke-tab-panel { display: none; max-width: 1100px; margin: 0 auto; }
+      .poke-tab-panel.active { display: block; }
+      .poke-tab-panel table { border-radius: 0 8px 8px 8px; }
+      .empty-note { text-align: center; color: #64748b; padding: 1.5rem; font-size: 0.85rem; }
+    </style>
+  </head>
+  <body>
+    <h1>IVX Stats</h1>
+    <div style="text-align:center;margin-bottom:1.5rem;">
+      <a href="/config/edit" style="color:#38bdf8;font-size:0.9rem;">Config Editor →</a>
+    </div>
+
+    {% macro poke_img(text) -%}
+      {%- if sprites and text is string and text in sprites -%}
+        <span class="poke-label"><img class="poke-sprite" src="{{ sprites[text][0] }}" onerror="this.onerror=null;this.src='{{ sprites[text][1] }}'" alt="">{{ text }}</span>
+      {%- else -%}{{ text }}{%- endif -%}
+    {%- endmacro %}
+
+    {% if error %}
+    <div class="error">Failed to fetch stats: {{ error }}</div>
+    {% elif raw is not none %}
+    <div class="raw-content">{{ raw }}</div>
+    {% elif stats is not none %}
+
+    {% macro render_dict(data, depth=0) %}
+      {# Collect simple key-value pairs #}
+      {% set simple = [] %}
+      {% set nested = [] %}
+      {% for key, value in data.items() %}
+        {% if value is mapping or (value is iterable and value is not string) %}
+          {% if nested.append((key, value)) %}{% endif %}
+        {% else %}
+          {% if simple.append((key, value)) %}{% endif %}
+        {% endif %}
+      {% endfor %}
+
+      {# Render simple pairs as a two-column table #}
+      {% if simple %}
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Property</th><th>Value</th></tr></thead>
+        <tbody>
+          {% for key, value in simple %}
+          <tr{% if loop.index > 10 %} class="hidden-row"{% endif %}>
+            <td class="key-col">{{ poke_img(key) }}</td>
+            <td>{{ poke_img(value) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if simple|length > 10 %}
+      <button class="expand-btn" onclick="toggleTable(this)">Show all {{ simple|length }} rows</button>
+      {% endif %}
+      </div>
+      {% endif %}
+
+      {# Render nested sections #}
+      {% for key, value in nested %}
+        {% set dcls = "depth-" ~ depth if depth < 4 else "depth-3" %}
+        <p class="section-heading {{ dcls }}" style="margin-left: {{ depth * 1 }}rem;">
+          {{ poke_img(key) }}
+        </p>
+
+        {% if value is mapping %}
+          {{ render_dict(value, depth + 1) }}
+        {% elif value is iterable and value is not string %}
+          {# List of items #}
+          {% set first = value[0] if value else none %}
+          {% if first is mapping %}
+            {# List of dicts → columnar table #}
+            <div class="table-wrap">
+            <table>
+              <thead><tr>
+                {% for col in first.keys() %}<th>{{ col }}</th>{% endfor %}
+              </tr></thead>
+              <tbody>
+                {% for item in value %}
+                <tr{% if loop.index > 10 %} class="hidden-row"{% endif %}>
+                  {% for col in item.values() %}<td>{{ poke_img(col) }}</td>{% endfor %}
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% if value|length > 10 %}
+            <button class="expand-btn" onclick="toggleTable(this)">Show all {{ value|length }} rows</button>
+            {% endif %}
+            </div>
+          {% else %}
+            {# List of scalars #}
+            <div class="table-wrap">
+            <table>
+              <thead><tr><th>Value</th></tr></thead>
+              <tbody>
+                {% for item in value %}
+                <tr{% if loop.index > 10 %} class="hidden-row"{% endif %}><td>{{ poke_img(item) }}</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            {% if value|length > 10 %}
+            <button class="expand-btn" onclick="toggleTable(this)">Show all {{ value|length }} rows</button>
+            {% endif %}
+            </div>
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+    {% endmacro %}
+
+    {# ===== Queue overview cards ===== #}
+    {% set q = stats.get("queue", {}) if stats.get is defined else {} %}
+    {% if q %}
+    <div class="stats-grid">
+      {% for key, value in q.items() %}
+        {% if not value is mapping and not (value is iterable and value is not string) %}
+        <div class="stat-card">
+          <div class="card-title">{{ key | replace("_", " ") }}</div>
+          <div class="card-value">{{ value }}</div>
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+
+    {# ===== IV Per Hour ===== #}
+    {% if iv_per_hour %}
+    <p class="section-heading">IV / Hour</p>
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="card-title">Combined</div>
+        <div class="card-value">{{ iv_per_hour.combined }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="card-title">Normal (Wild + Stop)</div>
+        <div class="card-value">{{ iv_per_hour.normal }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="card-title">Nearby Cell</div>
+        <div class="card-value">{{ iv_per_hour.nearby_cell }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="card-title">Elapsed Hours</div>
+        <div class="card-value">{{ iv_per_hour.elapsed_hours }}</div>
+      </div>
+    </div>
+    {% endif %}
+
+    {# ===== Session totals — combined table ===== #}
+    {% if session_totals %}
+    <p class="section-heading">Session Totals</p>
+    <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Queued</th>
+          <th>Matches</th>
+          <th>Early IV</th>
+          <th>Timeouts</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in session_totals %}
+        <tr{% if row.type == 'total' %} style="font-weight:700"{% endif %}>
+          <td class="key-col">{{ row.type | replace("_", " ") | title }}</td>
+          <td>{{ row.queued }}</td>
+          <td>{{ row.matches }}</td>
+          <td>{{ row.early_iv }}</td>
+          <td>{{ row.timeouts }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {# ===== By Pokemon — tabbed combined tables ===== #}
+    {% if pokemon_tables %}
+    <p class="section-heading" style="margin-top: 1.25rem;">By Pokemon</p>
+    <div class="poke-tabs">
+      {% for type_name in pokemon_tables %}
+      <button class="poke-tab-btn{% if loop.first %} active{% endif %}" data-poke-tab="{{ type_name }}">
+        {{ type_name | replace("_", " ") | title }}
+      </button>
+      {% endfor %}
+    </div>
+    {% for type_name, rows in pokemon_tables.items() %}
+    <div class="poke-tab-panel{% if loop.first %} active{% endif %}" id="poke-panel-{{ type_name }}">
+      {% if rows %}
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Pokemon</th>
+            <th>Queued</th>
+            <th>Matches</th>
+            <th>Early IV</th>
+            <th>Timeouts</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr{% if loop.index > 15 %} class="hidden-row"{% endif %}>
+            <td>{{ poke_img(row.pokemon) }}</td>
+            <td>{{ row.queued }}</td>
+            <td>{{ row.matches }}</td>
+            <td>{{ row.early_iv }}</td>
+            <td>{{ row.timeouts }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if rows|length > 15 %}
+      <button class="expand-btn" onclick="toggleTable(this)">Show all {{ rows|length }} rows</button>
+      {% endif %}
+      </div>
+      {% else %}
+      <div class="empty-note">No data yet</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
+    {# ===== Rarity stats summary ===== #}
+    {% set rarity_stats = stats.get("rarity", {}) if stats.get is defined else {} %}
+    {% if rarity_stats %}
+    <p class="section-heading" style="margin-top: 1.25rem;">Rarity</p>
+    {{ render_dict(rarity_stats, 1) }}
+    {% endif %}
+
+    {% endif %}
+
+    {# ===== Rarity Section ===== #}
+    {% if auto_rarity_enabled %}
+    <h1 style="margin-top: 2rem;">Rarity Rankings</h1>
+
+    {% if rarity_error %}
+    <div class="error">Failed to fetch rarity: {{ rarity_error }}</div>
+    {% elif rarity_rows %}
+      {% if rarity_meta %}
+      <table>
+        <thead><tr><th>Property</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td class="key-col">Status</td><td>{{ rarity_meta.status }}</td></tr>
+          <tr><td class="key-col">IV Threshold</td><td>{{ rarity_meta.threshold }}</td></tr>
+          <tr><td class="key-col">Total Tracked</td><td>{{ rarity_meta.total_tracked }}</td></tr>
+          <tr><td class="key-col">Would Queue</td><td>{{ rarity_meta.would_queue_count }}</td></tr>
+        </tbody>
+      </table>
+      {% endif %}
+
+      <p class="section-heading" style="margin-top: 1rem;">Global Rankings</p>
+      <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Pokemon</th>
+            <th>Active Count</th>
+            <th>Would Queue</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rarity_rows %}
+          <tr{% if loop.index > 10 %} class="hidden-row"{% endif %}>
+            <td>{{ row.rank }}</td>
+            <td>{{ poke_img(row.pokemon) }}</td>
+            <td>{{ row.active_count }}</td>
+            <td>{% if row.would_queue %}✅{% else %}❌{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if rarity_rows|length > 10 %}
+      <button class="expand-btn" onclick="toggleTable(this)">Show all {{ rarity_rows|length }} rows</button>
+      {% endif %}
+      </div>
+    {% else %}
+      <p style="text-align:center; color:#64748b;">No rarity data available.</p>
+    {% endif %}
+    {% endif %}
+
+    <button class="refresh-btn" onclick="location.reload()">Refresh</button>
+    <p class="timestamp">Last fetched: just now</p>
+
+    <script>
+      // Pokemon type tab switching
+      document.querySelectorAll(".poke-tab-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll(".poke-tab-btn").forEach(b => b.classList.remove("active"));
+          document.querySelectorAll(".poke-tab-panel").forEach(p => p.classList.remove("active"));
+          btn.classList.add("active");
+          document.getElementById("poke-panel-" + btn.dataset.pokeTab).classList.add("active");
+        });
+      });
+
+      function toggleTable(btn) {
+        const wrap = btn.closest(".table-wrap");
+        const total = wrap.querySelectorAll("tbody tr").length;
+        if (wrap.classList.toggle("expanded")) {
+          btn.textContent = "Show top 10 only";
+        } else {
+          btn.textContent = "Show all " + total + " rows";
+        }
+      }
+
+      function reapplyLimit(wrap) {
+        const rows = wrap.querySelectorAll("tbody tr");
+        rows.forEach((r, i) => {
+          r.classList.toggle("hidden-row", i >= 10);
+        });
+        const btn = wrap.querySelector(".expand-btn");
+        if (!btn && rows.length > 10) {
+          const b = document.createElement("button");
+          b.className = "expand-btn";
+          b.textContent = "Show all " + rows.length + " rows";
+          b.onclick = function() { toggleTable(this); };
+          wrap.appendChild(b);
+        }
+        if (btn) btn.textContent = wrap.classList.contains("expanded")
+          ? "Show top 10 only" : "Show all " + rows.length + " rows";
+      }
+
+      document.querySelectorAll("table").forEach(table => {
+        const headers = table.querySelectorAll("th");
+        headers.forEach((th, idx) => {
+          let asc = true;
+          th.addEventListener("click", () => {
+            const tbody = table.querySelector("tbody");
+            if (!tbody) return;
+            const rows = Array.from(tbody.rows);
+            rows.sort((a, b) => {
+              const at = (a.cells[idx]?.textContent || "").trim();
+              const bt = (b.cells[idx]?.textContent || "").trim();
+              const an = parseFloat(at), bn = parseFloat(bt);
+              if (!isNaN(an) && !isNaN(bn)) return asc ? an - bn : bn - an;
+              return asc ? at.localeCompare(bt) : bt.localeCompare(at);
+            });
+            rows.forEach(r => tbody.appendChild(r));
+            const wrap = table.closest(".table-wrap");
+            if (wrap && !wrap.classList.contains("expanded")) reapplyLimit(wrap);
+            headers.forEach(h => { const s = h.querySelector(".sort-arrow"); if (s) s.remove(); });
+            th.insertAdjacentHTML("beforeend",
+              `<span class="sort-arrow">${asc ? "▲" : "▼"}</span>`);
+            asc = !asc;
+          });
+        });
+      });
+    </script>
+  </body>
+</html>

@@ -85,6 +85,9 @@ geofence_refresh_cache_seconds = config.get("geofences", {}).get("refresh_cache_
 log_level = get_env_var("LOG_LEVEL", "INFO").upper()
 log_file = get_env_var("LOG_FILE", "FALSE").upper() == "TRUE"
 
+# Admin password for config editor (optional — if unset, config editor is open)
+admin_password: Optional[str] = get_env_var("ADMIN_PASSWORD", None)
+
 # IVQueue - Priority list of Pokemon to scout
 # Format: ["1", "3:0", "10:0"] where "1" = pokemon_id 1 any form, "3:0" = pokemon_id 3 form 0
 # Lower index = higher priority (first item is highest priority)

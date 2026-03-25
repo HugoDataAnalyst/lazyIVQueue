@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LazyIVQueue Config Editor</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: #0f172a;
+        color: #e2e8f0;
+        min-height: 100vh;
+        padding: 2rem;
+      }
+      h1 {
+        text-align: center;
+        margin-bottom: 1.5rem;
+        font-size: 1.8rem;
+        color: #38bdf8;
+      }
+      .nav {
+        text-align: center;
+        margin-bottom: 1.5rem;
+      }
+      .nav a {
+        color: #38bdf8;
+        text-decoration: none;
+        margin: 0 0.75rem;
+        font-size: 0.9rem;
+      }
+      .nav a:hover {
+        color: #7dd3fc;
+        text-decoration: underline;
+      }
+
+      .tabs {
+        display: flex;
+        gap: 0;
+        max-width: 900px;
+        margin: 0 auto 0;
+      }
+      .tab-btn {
+        flex: 1;
+        padding: 0.6rem 1rem;
+        background: #1e293b;
+        color: #94a3b8;
+        border: 1px solid #334155;
+        border-bottom: none;
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-weight: 600;
+        text-align: center;
+        border-radius: 8px 8px 0 0;
+        transition: all 0.15s;
+      }
+      .tab-btn:hover {
+        color: #e2e8f0;
+      }
+      .tab-btn.active {
+        background: #1e293b;
+        color: #38bdf8;
+        border-bottom-color: #1e293b;
+      }
+
+      .panel {
+        display: none;
+        max-width: 900px;
+        margin: 0 auto;
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 0 0 8px 8px;
+        padding: 1.5rem;
+      }
+      .panel.active {
+        display: block;
+      }
+
+      /* Form styles */
+      .section {
+        margin-bottom: 1.5rem;
+      }
+      .section-title {
+        color: #38bdf8;
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.35rem;
+        border-bottom: 1px solid #334155;
+      }
+      .field {
+        display: flex;
+        align-items: center;
+        margin-bottom: 0.5rem;
+        gap: 0.75rem;
+      }
+      .field label {
+        min-width: 200px;
+        color: #94a3b8;
+        font-size: 0.85rem;
+        font-weight: 500;
+      }
+      .field input[type="number"],
+      .field input[type="text"] {
+        background: #0f172a;
+        color: #e2e8f0;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        padding: 0.4rem 0.6rem;
+        font-size: 0.85rem;
+        font-family: "Cascadia Code", "Fira Code", monospace;
+        width: 200px;
+      }
+      .field input:focus {
+        outline: none;
+        border-color: #38bdf8;
+      }
+      .field .hint {
+        color: #64748b;
+        font-size: 0.75rem;
+      }
+
+      /* Tag input for lists — replaced by pokemon table */
+      .poke-table-wrap {
+        max-height: 500px;
+        overflow-y: auto;
+        border: 1px solid #334155;
+        border-radius: 6px;
+      }
+      .poke-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .poke-table th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #0f172a;
+        color: #38bdf8;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        padding: 0.5rem 0.6rem;
+        text-align: left;
+        border-bottom: 1px solid #334155;
+      }
+      .poke-table td {
+        padding: 0.4rem 0.6rem;
+        border-bottom: 1px solid #1e293b;
+        font-size: 0.85rem;
+        vertical-align: middle;
+      }
+      .poke-table tr {
+        background: #1e293b;
+        transition: background 0.1s;
+      }
+      .poke-table tr:hover {
+        background: #263548;
+      }
+      .poke-table tr.dragging {
+        opacity: 0.4;
+      }
+      .poke-table tr.drag-over td {
+        border-top: 2px solid #38bdf8;
+      }
+      .poke-table .drag-handle {
+        cursor: grab;
+        color: #475569;
+        font-size: 1rem;
+        user-select: none;
+        width: 24px;
+        text-align: center;
+      }
+      .poke-table .drag-handle:active {
+        cursor: grabbing;
+      }
+      .poke-table .poke-id {
+        font-family: "Cascadia Code", "Fira Code", monospace;
+        color: #94a3b8;
+        white-space: nowrap;
+      }
+      .poke-table .poke-name {
+        color: #e2e8f0;
+      }
+      .poke-table .poke-sprite {
+        width: 28px;
+        height: 28px;
+        vertical-align: middle;
+        margin-right: 0.3rem;
+      }
+      .poke-table input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        accent-color: #38bdf8;
+        cursor: pointer;
+      }
+      .poke-table .remove-btn {
+        background: none;
+        border: none;
+        color: #64748b;
+        font-size: 1.1rem;
+        cursor: pointer;
+        padding: 0 0.3rem;
+        line-height: 1;
+      }
+      .poke-table .remove-btn:hover {
+        color: #f87171;
+      }
+      .add-pokemon-row {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        margin-top: 0.5rem;
+      }
+      .add-pokemon-row input {
+        background: #0f172a;
+        color: #e2e8f0;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        padding: 0.4rem 0.6rem;
+        font-size: 0.85rem;
+        font-family: "Cascadia Code", "Fira Code", monospace;
+        width: 180px;
+      }
+      .add-pokemon-row input:focus {
+        outline: none;
+        border-color: #38bdf8;
+      }
+      .add-pokemon-row .btn-add {
+        background: #334155;
+        color: #e2e8f0;
+        border: none;
+        border-radius: 4px;
+        padding: 0.4rem 0.8rem;
+        font-size: 0.85rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .add-pokemon-row .btn-add:hover {
+        background: #475569;
+      }
+      .add-pokemon-row .add-hint {
+        color: #64748b;
+        font-size: 0.75rem;
+      }
+
+      /* JSON editor */
+      #json-editor {
+        width: 100%;
+        min-height: 400px;
+        background: #0f172a;
+        color: #e2e8f0;
+        border: 1px solid #334155;
+        border-radius: 4px;
+        padding: 1rem;
+        font-family: "Cascadia Code", "Fira Code", monospace;
+        font-size: 0.85rem;
+        line-height: 1.6;
+        resize: vertical;
+      }
+      #json-editor:focus {
+        outline: none;
+        border-color: #38bdf8;
+      }
+      .json-error {
+        color: #f87171;
+        font-size: 0.8rem;
+        margin-top: 0.35rem;
+        min-height: 1.2em;
+      }
+
+      /* Buttons */
+      .btn-row {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: center;
+        margin-top: 1.5rem;
+      }
+      .btn {
+        padding: 0.55rem 1.5rem;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .btn-primary {
+        background: #38bdf8;
+        color: #0f172a;
+      }
+      .btn-primary:hover {
+        background: #7dd3fc;
+      }
+      .btn-primary:disabled {
+        background: #334155;
+        color: #64748b;
+        cursor: not-allowed;
+      }
+      .btn-secondary {
+        background: #334155;
+        color: #e2e8f0;
+      }
+      .btn-secondary:hover {
+        background: #475569;
+      }
+
+      /* Status toast */
+      .toast {
+        position: fixed;
+        bottom: 2rem;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        z-index: 999;
+        opacity: 0;
+        transition: opacity 0.3s;
+        pointer-events: none;
+      }
+      .toast.show {
+        opacity: 1;
+      }
+      .toast.success {
+        background: #065f46;
+        color: #6ee7b7;
+      }
+      .toast.error {
+        background: #7f1d1d;
+        color: #fca5a5;
+      }
+
+      /* Changes summary */
+      .changes {
+        max-width: 900px;
+        margin: 1rem auto 0;
+      }
+      .changes summary {
+        color: #38bdf8;
+        cursor: pointer;
+        font-size: 0.85rem;
+      }
+      .changes pre {
+        background: #0f172a;
+        padding: 0.75rem;
+        border-radius: 4px;
+        margin-top: 0.5rem;
+        font-size: 0.8rem;
+        border: 1px solid #334155;
+        overflow-x: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Config Editor</h1>
+    <div class="nav">
+      <a href="/">← Stats Dashboard</a> <a href="/logout">Logout</a>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="form">Form Editor</button>
+      <button class="tab-btn" data-tab="json">Raw JSON</button>
+    </div>
+
+    <!-- ===== Form Editor ===== -->
+    <div class="panel active" id="panel-form">
+      <div class="section">
+        <div class="section-title">Pokemon Lists</div>
+        <p style="color: #94a3b8; font-size: 0.8rem; margin-bottom: 0.5rem">
+          Drag rows to set priority order. Check which list(s) each Pokemon
+          belongs to.
+        </p>
+        <div class="poke-table-wrap">
+          <table class="poke-table" id="pokemon-table">
+            <thead>
+              <tr>
+                <th style="width: 30px"></th>
+                <th style="width: 50px">#</th>
+                <th>Pokemon</th>
+                <th style="width: 70px; text-align: center">IV List</th>
+                <th style="width: 70px; text-align: center">Cell List</th>
+                <th style="width: 40px"></th>
+              </tr>
+            </thead>
+            <tbody id="pokemon-tbody"></tbody>
+          </table>
+        </div>
+        <div class="add-pokemon-row">
+          <input
+            type="text"
+            id="add-pokemon-input"
+            placeholder="e.g. 150 or 150:0"
+          />
+          <button class="btn-add" onclick="addPokemonFromInput()">+ Add</button>
+          <span class="add-hint"
+            >Pokemon ID or ID:form — press Enter to add</span
+          >
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Deny List</div>
+        <p style="color: #94a3b8; font-size: 0.8rem; margin-bottom: 0.5rem">
+          Pokemon that should never be scouted, regardless of other lists.
+        </p>
+        <div class="poke-table-wrap">
+          <table class="poke-table" id="deny-table">
+            <thead>
+              <tr>
+                <th style="width: 50px">#</th>
+                <th>Pokemon</th>
+                <th style="width: 40px"></th>
+              </tr>
+            </thead>
+            <tbody id="deny-tbody"></tbody>
+          </table>
+        </div>
+        <div class="add-pokemon-row">
+          <input
+            type="text"
+            id="add-deny-input"
+            placeholder="e.g. 150 or 150:0"
+          />
+          <button class="btn-add" onclick="addDenyFromInput()">+ Add</button>
+          <span class="add-hint"
+            >Pokemon ID or ID:form — press Enter to add</span
+          >
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Auto Rarity</div>
+        <div class="field">
+          <label for="calibration_minutes">Calibration minutes</label>
+          <input type="number" id="calibration_minutes" min="1" />
+          <span class="hint">Warmup period before rankings are used</span>
+        </div>
+        <div class="field">
+          <label for="iv_threshold">IV threshold</label>
+          <input type="number" id="iv_threshold" min="1" />
+          <span class="hint">Top N rarest globally to queue</span>
+        </div>
+        <div class="field">
+          <label for="cell_threshold">Cell threshold</label>
+          <input type="number" id="cell_threshold" min="1" />
+          <span class="hint">Top N rarest for cell scouting</span>
+        </div>
+        <div class="field">
+          <label for="ranking_interval_seconds">Ranking interval (s)</label>
+          <input type="number" id="ranking_interval_seconds" min="10" />
+          <span class="hint">Seconds between re-ranking</span>
+        </div>
+        <div class="field">
+          <label for="cleanup_interval_seconds">Cleanup interval (s)</label>
+          <input type="number" id="cleanup_interval_seconds" min="10" />
+          <span class="hint">Seconds between despawn cleanup</span>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Geofences</div>
+        <div class="field">
+          <label for="expire_cache_seconds">Cache expire (s)</label>
+          <input type="number" id="expire_cache_seconds" min="60" />
+        </div>
+        <div class="field">
+          <label for="refresh_cache_seconds">Cache refresh (s)</label>
+          <input type="number" id="refresh_cache_seconds" min="60" />
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Scout</div>
+        <div class="field">
+          <label for="concurrency">Concurrency</label>
+          <input type="number" id="concurrency" min="1" />
+          <span class="hint">Max parallel scouts</span>
+        </div>
+        <div class="field">
+          <label for="timeout_iv">Timeout IV (s)</label>
+          <input type="number" id="timeout_iv" min="10" />
+          <span class="hint">Seconds to wait for IV data</span>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="resetForm()">Reset</button>
+        <button
+          class="btn btn-primary"
+          id="save-form-btn"
+          onclick="saveFromForm()"
+        >
+          Save &amp; Apply
+        </button>
+      </div>
+    </div>
+
+    <!-- ===== Raw JSON Editor ===== -->
+    <div class="panel" id="panel-json">
+      <textarea id="json-editor" spellcheck="false"></textarea>
+      <div class="json-error" id="json-error"></div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="resetJson()">Reset</button>
+        <button class="btn btn-secondary" onclick="formatJson()">Format</button>
+        <button
+          class="btn btn-primary"
+          id="save-json-btn"
+          onclick="saveFromJson()"
+        >
+          Save &amp; Apply
+        </button>
+      </div>
+    </div>
+
+    <details class="changes" id="changes-box" style="display: none">
+      <summary>Applied changes</summary>
+      <pre id="changes-pre"></pre>
+    </details>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+      // ── State ──
+      let originalConfig = {};
+      const pokemonNames = {}; // dex -> name
+      const SPRITE_BASE =
+        "https://raw.githubusercontent.com/whitewillem/PogoAssets/main/uicons-outline/pokemon";
+
+      // ── Load Pokemon names from PokeAPI ──
+      async function loadPokemonNames() {
+        try {
+          const resp = await fetch(
+            "https://pokeapi.co/api/v2/pokemon-species?limit=1025",
+          );
+          const data = await resp.json();
+          for (const entry of data.results || []) {
+            const dex = parseInt(
+              entry.url.replace(/\/+$/, "").split("/").pop(),
+            );
+            pokemonNames[dex] =
+              entry.name.charAt(0).toUpperCase() + entry.name.slice(1);
+          }
+        } catch (e) {
+          console.warn("Failed to load Pokemon names", e);
+        }
+      }
+
+      function getPokeName(key) {
+        const parts = key.split(":");
+        const dex = parseInt(parts[0]);
+        const form = parts.length > 1 ? parts[1] : null;
+        const name = pokemonNames[dex];
+        if (!name) return "";
+        if (form && form !== "0") return `${name} (#${dex}:${form})`;
+        return `${name} (#${dex})`;
+      }
+
+      function getSpriteUrl(key) {
+        const parts = key.split(":");
+        const dex = parts[0];
+        if (parts.length > 1)
+          return SPRITE_BASE + "/" + dex + "_f" + parts[1] + ".png";
+        return SPRITE_BASE + "/" + dex + ".png";
+      }
+
+      function getSpriteFallback(key) {
+        return SPRITE_BASE + "/" + key.split(":")[0] + ".png";
+      }
+
+      // ── Tabs ──
+      document.querySelectorAll(".tab-btn").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document
+            .querySelectorAll(".tab-btn")
+            .forEach((b) => b.classList.remove("active"));
+          document
+            .querySelectorAll(".panel")
+            .forEach((p) => p.classList.remove("active"));
+          btn.classList.add("active");
+          document
+            .getElementById("panel-" + btn.dataset.tab)
+            .classList.add("active");
+          if (btn.dataset.tab === "json") syncFormToJson();
+        });
+      });
+
+      // ── Toast ──
+      function showToast(msg, type) {
+        const t = document.getElementById("toast");
+        t.textContent = msg;
+        t.className = "toast show " + type;
+        setTimeout(() => t.classList.remove("show"), 3000);
+      }
+
+      // ── Pokemon Table ──
+      let dragRow = null;
+
+      function buildPokemonTable(ivlist, celllist) {
+        const tbody = document.getElementById("pokemon-tbody");
+        tbody.innerHTML = "";
+        // Merge into ordered unique list: ivlist order first, then celllist extras
+        const seen = new Set();
+        const ordered = [];
+        for (const id of ivlist) {
+          if (!seen.has(id)) {
+            seen.add(id);
+            ordered.push(id);
+          }
+        }
+        for (const id of celllist) {
+          if (!seen.has(id)) {
+            seen.add(id);
+            ordered.push(id);
+          }
+        }
+        const ivSet = new Set(ivlist);
+        const cellSet = new Set(celllist);
+        for (const id of ordered) {
+          addPokemonRow(id, ivSet.has(id), cellSet.has(id));
+        }
+      }
+
+      function addPokemonRow(pokeId, inIv, inCell) {
+        const tbody = document.getElementById("pokemon-tbody");
+        const tr = document.createElement("tr");
+        tr.draggable = true;
+        tr.dataset.pokeId = pokeId;
+        const name = getPokeName(pokeId);
+        const sprite = getSpriteUrl(pokeId);
+        const fallback = getSpriteFallback(pokeId);
+        tr.innerHTML = `
+          <td class="drag-handle" title="Drag to reorder">⠿</td>
+          <td class="poke-id">${pokeId}</td>
+          <td class="poke-name"><img class="poke-sprite" src="${sprite}" onerror="this.onerror=null;this.src='${fallback}'" alt="">${name || pokeId}</td>
+          <td style="text-align:center"><input type="checkbox" class="cb-iv" ${inIv ? "checked" : ""} /></td>
+          <td style="text-align:center"><input type="checkbox" class="cb-cell" ${inCell ? "checked" : ""} /></td>
+          <td><button class="remove-btn" title="Remove" onclick="this.closest('tr').remove()">&times;</button></td>
+        `;
+        // Drag events
+        tr.addEventListener("dragstart", (e) => {
+          dragRow = tr;
+          tr.classList.add("dragging");
+          e.dataTransfer.effectAllowed = "move";
+        });
+        tr.addEventListener("dragend", () => {
+          tr.classList.remove("dragging");
+          document
+            .querySelectorAll(".poke-table tr.drag-over")
+            .forEach((r) => r.classList.remove("drag-over"));
+          dragRow = null;
+        });
+        tr.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          if (dragRow && dragRow !== tr) tr.classList.add("drag-over");
+        });
+        tr.addEventListener("dragleave", () =>
+          tr.classList.remove("drag-over"),
+        );
+        tr.addEventListener("drop", (e) => {
+          e.preventDefault();
+          tr.classList.remove("drag-over");
+          if (dragRow && dragRow !== tr) {
+            tbody.insertBefore(dragRow, tr);
+          }
+        });
+        tbody.appendChild(tr);
+      }
+
+      function addPokemonFromInput() {
+        const input = document.getElementById("add-pokemon-input");
+        const val = input.value.trim().replace(/,/g, "");
+        if (!val) return;
+        // Check if already in table
+        const existing = document.querySelectorAll("#pokemon-tbody tr");
+        for (const row of existing) {
+          if (row.dataset.pokeId === val) {
+            showToast("Already in list: " + val, "error");
+            input.value = "";
+            return;
+          }
+        }
+        addPokemonRow(val, true, false);
+        input.value = "";
+        input.focus();
+      }
+
+      // ── Deny List Table ──
+      function buildDenyTable(denylist) {
+        const tbody = document.getElementById("deny-tbody");
+        tbody.innerHTML = "";
+        const sorted = [...denylist].sort((a, b) => {
+          const dexA = parseInt(a.split(":")[0]);
+          const dexB = parseInt(b.split(":")[0]);
+          return dexA - dexB;
+        });
+        for (const id of sorted) addDenyRow(id);
+      }
+
+      function addDenyRow(pokeId) {
+        const tbody = document.getElementById("deny-tbody");
+        const tr = document.createElement("tr");
+        tr.dataset.pokeId = pokeId;
+        const name = getPokeName(pokeId);
+        const sprite = getSpriteUrl(pokeId);
+        const fallback = getSpriteFallback(pokeId);
+        tr.innerHTML = `
+          <td class="poke-id">${pokeId}</td>
+          <td class="poke-name"><img class="poke-sprite" src="${sprite}" onerror="this.onerror=null;this.src='${fallback}'" alt="">${name || pokeId}</td>
+          <td><button class="remove-btn" title="Remove" onclick="this.closest('tr').remove()">&times;</button></td>
+        `;
+        // Insert sorted by dex number
+        const dex = parseInt(pokeId.split(":")[0]);
+        let inserted = false;
+        for (const row of tbody.rows) {
+          const rowDex = parseInt(row.dataset.pokeId.split(":")[0]);
+          if (dex < rowDex) {
+            tbody.insertBefore(tr, row);
+            inserted = true;
+            break;
+          }
+        }
+        if (!inserted) tbody.appendChild(tr);
+      }
+
+      function addDenyFromInput() {
+        const input = document.getElementById("add-deny-input");
+        const val = input.value.trim().replace(/,/g, "");
+        if (!val) return;
+        const existing = document.querySelectorAll("#deny-tbody tr");
+        for (const row of existing) {
+          if (row.dataset.pokeId === val) {
+            showToast("Already in deny list: " + val, "error");
+            input.value = "";
+            return;
+          }
+        }
+        addDenyRow(val);
+        input.value = "";
+        input.focus();
+      }
+
+      function getDenyListFromTable() {
+        const rows = document.querySelectorAll("#deny-tbody tr");
+        return Array.from(rows).map((row) => row.dataset.pokeId);
+      }
+
+      document.addEventListener("DOMContentLoaded", () => {
+        const input = document.getElementById("add-pokemon-input");
+        input.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            addPokemonFromInput();
+          }
+        });
+        const denyInput = document.getElementById("add-deny-input");
+        denyInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            addDenyFromInput();
+          }
+        });
+      });
+
+      function getListsFromTable() {
+        const rows = document.querySelectorAll("#pokemon-tbody tr");
+        const ivlist = [];
+        const celllist = [];
+        rows.forEach((row) => {
+          const id = row.dataset.pokeId;
+          if (row.querySelector(".cb-iv").checked) ivlist.push(id);
+          if (row.querySelector(".cb-cell").checked) celllist.push(id);
+        });
+        return { ivlist, celllist };
+      }
+
+      // ── Populate form from config object ──
+      function populateForm(cfg) {
+        buildPokemonTable(cfg.ivlist || [], cfg.celllist || []);
+        buildDenyTable(cfg.denylist || []);
+        const ar = cfg.auto_rarity || {};
+        document.getElementById("calibration_minutes").value =
+          ar.calibration_minutes ?? 5;
+        document.getElementById("iv_threshold").value = ar.iv_threshold ?? 50;
+        document.getElementById("cell_threshold").value =
+          ar.cell_threshold ?? 10;
+        document.getElementById("ranking_interval_seconds").value =
+          ar.ranking_interval_seconds ?? 120;
+        document.getElementById("cleanup_interval_seconds").value =
+          ar.cleanup_interval_seconds ?? 60;
+        const gf = cfg.geofences || {};
+        document.getElementById("expire_cache_seconds").value =
+          gf.expire_cache_seconds ?? 3600;
+        document.getElementById("refresh_cache_seconds").value =
+          gf.refresh_cache_seconds ?? 3600;
+        const sc = cfg.scout || {};
+        document.getElementById("concurrency").value = sc.concurrency ?? 5;
+        document.getElementById("timeout_iv").value = sc.timeout_iv ?? 120;
+      }
+
+      // ── Build config object from form ──
+      function buildConfigFromForm() {
+        const { ivlist, celllist } = getListsFromTable();
+        const denylist = getDenyListFromTable();
+        return {
+          ivlist,
+          celllist,
+          denylist,
+          auto_rarity: {
+            calibration_minutes:
+              parseInt(document.getElementById("calibration_minutes").value) ||
+              5,
+            iv_threshold:
+              parseInt(document.getElementById("iv_threshold").value) || 50,
+            cell_threshold:
+              parseInt(document.getElementById("cell_threshold").value) || 10,
+            ranking_interval_seconds:
+              parseInt(
+                document.getElementById("ranking_interval_seconds").value,
+              ) || 120,
+            cleanup_interval_seconds:
+              parseInt(
+                document.getElementById("cleanup_interval_seconds").value,
+              ) || 60,
+          },
+          geofences: {
+            expire_cache_seconds:
+              parseInt(document.getElementById("expire_cache_seconds").value) ||
+              3600,
+            refresh_cache_seconds:
+              parseInt(
+                document.getElementById("refresh_cache_seconds").value,
+              ) || 3600,
+          },
+          scout: {
+            concurrency:
+              parseInt(document.getElementById("concurrency").value) || 5,
+            timeout_iv:
+              parseInt(document.getElementById("timeout_iv").value) || 120,
+          },
+        };
+      }
+
+      function syncFormToJson() {
+        const cfg = buildConfigFromForm();
+        document.getElementById("json-editor").value = JSON.stringify(
+          cfg,
+          null,
+          4,
+        );
+        document.getElementById("json-error").textContent = "";
+      }
+
+      // ── JSON panel helpers ──
+      function formatJson() {
+        const el = document.getElementById("json-editor");
+        try {
+          const obj = JSON.parse(el.value);
+          el.value = JSON.stringify(obj, null, 4);
+          document.getElementById("json-error").textContent = "";
+        } catch (e) {
+          document.getElementById("json-error").textContent =
+            "Invalid JSON: " + e.message;
+        }
+      }
+
+      function resetJson() {
+        document.getElementById("json-editor").value = JSON.stringify(
+          originalConfig,
+          null,
+          4,
+        );
+        document.getElementById("json-error").textContent = "";
+      }
+
+      function resetForm() {
+        populateForm(originalConfig);
+      }
+
+      // ── Save ──
+      async function saveConfig(cfg) {
+        try {
+          const resp = await fetch("/config/raw", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cfg),
+          });
+          const data = await resp.json();
+          if (!resp.ok) {
+            showToast("Error: " + (data.error || resp.statusText), "error");
+            return;
+          }
+          originalConfig = cfg;
+          showToast(
+            data.changes_count > 0
+              ? `Saved & applied ${data.changes_count} change(s)`
+              : "Saved (no changes detected)",
+            "success",
+          );
+          if (data.changes_count > 0) {
+            const box = document.getElementById("changes-box");
+            box.style.display = "block";
+            document.getElementById("changes-pre").textContent = JSON.stringify(
+              data.changes,
+              null,
+              2,
+            );
+          }
+        } catch (e) {
+          showToast("Network error: " + e.message, "error");
+        }
+      }
+
+      function saveFromForm() {
+        saveConfig(buildConfigFromForm());
+      }
+
+      function saveFromJson() {
+        const el = document.getElementById("json-editor");
+        try {
+          const cfg = JSON.parse(el.value);
+          document.getElementById("json-error").textContent = "";
+          saveConfig(cfg);
+        } catch (e) {
+          document.getElementById("json-error").textContent =
+            "Invalid JSON: " + e.message;
+        }
+      }
+
+      // ── Load on init ──
+      (async function () {
+        await loadPokemonNames();
+        try {
+          const resp = await fetch("/config/raw");
+          originalConfig = await resp.json();
+          populateForm(originalConfig);
+          document.getElementById("json-editor").value = JSON.stringify(
+            originalConfig,
+            null,
+            4,
+          );
+        } catch (e) {
+          showToast("Failed to load config: " + e.message, "error");
+        }
+      })();
+    </script>
+  </body>
+</html>
