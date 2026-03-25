@@ -70,6 +70,10 @@ headers = ["HeaderName: Value"]
 - `celllist` - Priority list for `nearby_cell` seen_type (same format as ivlist)
   - Celllist entries are always processed before ivlist entries, so only insert really important ones here
   - Uses 9x9 pattern (9 coordinates) to cover S2 level-15 cell
+- `denylist` - Block list of Pokemon to never scout (same format as ivlist/celllist)
+  - Applies to all seen_types — denylisted Pokemon are silently dropped before queueing
+  - When `AUTO_RARITY=TRUE`, the denylist persists across reloads and prevents rare-but-unwanted Pokemon from being queued
+  - Empty list disables the feature
 - `scout.concurrency` - Max concurrent scout requests - Should match the number of scouts you have set in Dragonite
 - `scout.timeout_iv` - Seconds to wait for IV data before removing from queue - Liberating the scout to work (default: 180)
 - `geofences.expire_cache_seconds` - How long to cache geofences before expiring (default: 1800)
@@ -135,7 +139,7 @@ docker-compose up -d --build
 - `POST /webhook` - Receives Pokemon webhooks from Golbat (ivlist/celllist filtering)
 - `POST /webhook/census` - Receives ALL Pokemon spawns for rarity tracking
 - `GET /health` - Health check
-- `GET /stats` - Queue, scout, and rarity statistics
+- `GET /stats` - Queue, scout, and rarity statistics — includes IV/hour rates (nearby_cell, normal, combined)
 - `GET /queue` - Queue preview (next N entries, use `?count=N`)
 - `GET /rarity` - Auto Rarity rankings per area (use `?area=AreaName&limit=100`)
 - `GET /config` - Current configuration summary
@@ -146,7 +150,7 @@ docker-compose up -d --build
 The `/reload` endpoint allows you to update config.json values without restarting the service.
 
 **Reloadable settings:**
-- `ivlist`, `celllist` - Priority lists
+- `ivlist`, `celllist`, `denylist` - Priority/block lists
 - `auto_rarity` settings - thresholds, intervals
 - `scout.concurrency`, `scout.timeout_iv` - Scout settings
 - `geofences` cache settings
