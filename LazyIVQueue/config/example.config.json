@@ -1,6 +1,7 @@
 {
     "ivlist": ["1", "3:0", "10:0", "25", "150:0"],
     "celllist": ["151"],
+    "denylist": [],
     "auto_rarity": {
         "calibration_minutes": 5,
         "iv_threshold": 50,
