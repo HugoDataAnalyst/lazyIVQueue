@@ -62,6 +62,8 @@ types = ["pokemon"]
 headers = ["HeaderName: Value"]
 ```
 
+> Use `types = ["pokemon"]` (not `"pokemon_no_iv"`) so Golbat also sends IV-bearing encounters — required for early IV detection and avoids wasting scout slots on Pokemon already have IV data.
+
 ### config.json
 - `ivlist` - Priority list of Pokemon to scout for `wild`/`nearby_stop` seen_types (first = highest priority)
   - `"pokemon_id"` - Match any form (e.g., `"1"` matches Bulbasaur any form)
