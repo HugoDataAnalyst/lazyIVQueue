@@ -145,6 +145,33 @@ docker-compose up -d --build
 - `GET /config` - Current configuration summary
 - `POST /reload` - Hot-reload config.json values without restarting
 
+### Examples
+
+```bash
+# Health check
+curl -s http://localhost:7070/health
+
+# Per-type session breakdown (queued / matches / early_iv / timeouts)
+curl -s http://localhost:7070/stats | jq '.queue.session | {queued: .total_queued, matches: .total_matches, early_iv: .total_early_iv, timeouts: .total_timeouts}'
+
+# Full stats (queue + scout coordinator + rarity)
+curl -s http://localhost:7070/stats | jq .
+
+# Preview next 20 queue entries
+curl -s "http://localhost:7070/queue?count=20" | jq .
+
+# Rarity rankings for a specific area (top 50)
+curl -s "http://localhost:7070/rarity?area=CityCenter&limit=50" | jq .
+
+# Current config summary
+curl -s http://localhost:7070/config | jq .
+
+# Hot-reload config.json
+curl -X POST http://localhost:7070/reload
+```
+
+> Add `-H "HeaderName: Value"` to any request if your server uses header auth.
+
 ### Hot Reload
 
 The `/reload` endpoint allows you to update config.json values without restarting the service.
@@ -161,11 +188,6 @@ The `/reload` endpoint allows you to update config.json values without restartin
 - Koji credentials (`.env`)
 - `AUTO_RARITY`, `FILTER_WITH_KOJI` (`.env`)
 - `LOG_LEVEL`, `LOG_FILE` (`.env`)
-
-Example:
-```bash
-curl -X POST http://localhost:7070/reload
-```
 
 ## Log Prefixes
 
