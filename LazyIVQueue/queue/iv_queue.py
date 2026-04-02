@@ -47,6 +47,7 @@ class QueueEntry:
     is_scouting: bool = field(compare=False, default=False)
     was_scouted: bool = field(compare=False, default=False)  # True after scout sent, waiting for IV
     scout_started_at: Optional[float] = field(compare=False, default=None)
+    eligible_at: float = field(compare=False, default=0.0)  # unix timestamp; 0.0 = immediately eligible
 
     @property
     def unique_key(self) -> str:
@@ -93,12 +94,14 @@ class IVQueueManager:
         self._queued_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
         self._matches_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
         self._early_iv_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
+        self._wild_early_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
         self._timeouts_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
 
         # Per-Pokemon breakdown by seen_type (key: seen_type -> pokemon_display -> count)
         self._queued_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
         self._matches_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
         self._early_iv_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
+        self._wild_early_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
         self._timeouts_by_pokemon: Dict[str, Dict[str, int]] = {t: {} for t in self._seen_types}
 
         # Session start time for IV/hour rate calculation
@@ -322,12 +325,21 @@ class IVQueueManager:
         )
 
     def record_early_iv(self, pokemon_display: str, seen_type: str) -> None:
-        """Record an early IV (received before scouting)."""
+        """Record an early IV (received before scouting, no hold was configured)."""
         if seen_type not in self._seen_types:
             return
         self._early_iv_by_type[seen_type] = self._early_iv_by_type.get(seen_type, 0) + 1
         self._early_iv_by_pokemon[seen_type][pokemon_display] = (
             self._early_iv_by_pokemon[seen_type].get(pokemon_display, 0) + 1
+        )
+
+    def record_wild_early_iv(self, pokemon_display: str, seen_type: str) -> None:
+        """Record a wild early IV (received during deliberate hold window, no scout dispatched)."""
+        if seen_type not in self._seen_types:
+            return
+        self._wild_early_by_type[seen_type] = self._wild_early_by_type.get(seen_type, 0) + 1
+        self._wild_early_by_pokemon[seen_type][pokemon_display] = (
+            self._wild_early_by_pokemon[seen_type].get(pokemon_display, 0) + 1
         )
 
     def record_timeout(self, pokemon_display: str, seen_type: str) -> None:
@@ -371,6 +383,11 @@ class IVQueueManager:
                 if key not in self._entries or entry.is_removed or entry.is_scouting or entry.was_scouted:
                     heapq.heappop(self._heap)
                     continue
+
+                # Hold check: entry not yet eligible for scouting
+                if entry.eligible_at > time.time():
+                    self._scout_semaphore.release()
+                    return None
 
                 # Found valid entry
                 heapq.heappop(self._heap)
@@ -455,24 +472,28 @@ class IVQueueManager:
                 "total_queued": self._build_type_stats(self._queued_by_type),
                 "total_matches": self._build_type_stats(self._matches_by_type),
                 "total_early_iv": self._build_type_stats(self._early_iv_by_type),
+                "total_wild_early": self._build_type_stats(self._wild_early_by_type),
                 "total_timeouts": self._build_type_stats(self._timeouts_by_type),
                 "by_pokemon": {
                     "wild": {
                         "queued": self._queued_by_pokemon.get("wild", {}),
                         "matches": self._matches_by_pokemon.get("wild", {}),
                         "early_iv": self._early_iv_by_pokemon.get("wild", {}),
+                        "wild_early": self._wild_early_by_pokemon.get("wild", {}),
                         "timeouts": self._timeouts_by_pokemon.get("wild", {}),
                     },
                     "nearby_stop": {
                         "queued": self._queued_by_pokemon.get("nearby_stop", {}),
                         "matches": self._matches_by_pokemon.get("nearby_stop", {}),
                         "early_iv": self._early_iv_by_pokemon.get("nearby_stop", {}),
+                        "wild_early": self._wild_early_by_pokemon.get("nearby_stop", {}),
                         "timeouts": self._timeouts_by_pokemon.get("nearby_stop", {}),
                     },
                     "nearby_cell": {
                         "queued": self._queued_by_pokemon.get("nearby_cell", {}),
                         "matches": self._matches_by_pokemon.get("nearby_cell", {}),
                         "early_iv": self._early_iv_by_pokemon.get("nearby_cell", {}),
+                        "wild_early": self._wild_early_by_pokemon.get("nearby_cell", {}),
                         "timeouts": self._timeouts_by_pokemon.get("nearby_cell", {}),
                     },
                 },
