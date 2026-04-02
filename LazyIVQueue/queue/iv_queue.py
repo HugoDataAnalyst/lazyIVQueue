@@ -573,12 +573,13 @@ class IVQueueManager:
         total_queued = self._get_total_from_type_dict(self._queued_by_type)
         total_matches = self._get_total_from_type_dict(self._matches_by_type)
         total_early = self._get_total_from_type_dict(self._early_iv_by_type)
+        total_wild_early = self._get_total_from_type_dict(self._wild_early_by_type)
         total_timeouts = self._get_total_from_type_dict(self._timeouts_by_type)
 
         logger.opt(colors=True).info(
             f"<magenta>IVQueue Status:</magenta> <yellow>{pending} pending</yellow> | "
             f"<blue>{awaiting_iv} awaiting IV</blue> | heap={heap_size} | "
-            f"<cyan>Session: {total_queued} queued</cyan> / <green>{total_matches} matches</green> / <magenta>{total_early} early</magenta> / <red>{total_timeouts} timeouts</red>"
+            f"<cyan>Session: {total_queued} queued</cyan> / <green>{total_matches} matches</green> / <magenta>{total_early} early</magenta> / <cyan>{total_wild_early} wild_early</cyan> / <red>{total_timeouts} timeouts</red>"
         )
 
         if queue_size > 0:
