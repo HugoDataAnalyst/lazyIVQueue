@@ -457,12 +457,15 @@ class IVQueueManager:
     async def get_stats(self) -> Dict[str, Any]:
         """Return queue statistics."""
         # Count entries waiting for IV match
+        now = time.time()
         waiting_for_iv = sum(1 for e in self._entries.values() if e.was_scouted and not e.is_removed)
-        pending = len(self._entries) - waiting_for_iv
+        held = sum(1 for e in self._entries.values() if not e.is_scouting and not e.is_removed and e.eligible_at > now)
+        pending = len(self._entries) - waiting_for_iv - held
 
         return {
             "queue_size": len(self._entries),
             "pending": pending,
+            "held": held,
             "awaiting_iv": waiting_for_iv,
             "active_scouts": self._active_scouts,
             "max_concurrency": AppConfig.concurrency_scout,
@@ -565,9 +568,12 @@ class IVQueueManager:
 
         # Count entries by state:
         # - awaiting_iv: is_scouting=True (scout sent, holding semaphore, waiting for IV)
-        # - pending: is_scouting=False (waiting for available slot)
+        # - held: is_scouting=False, eligible_at > now (in wild_scout_delay window)
+        # - pending: is_scouting=False, eligible_at <= now (ready, waiting for semaphore slot)
+        now = time.time()
         awaiting_iv = sum(1 for e in self._entries.values() if e.is_scouting and not e.is_removed)
-        pending = queue_size - awaiting_iv
+        held = sum(1 for e in self._entries.values() if not e.is_scouting and not e.is_removed and e.eligible_at > now)
+        pending = queue_size - awaiting_iv - held
 
         # Calculate totals
         total_queued = self._get_total_from_type_dict(self._queued_by_type)
@@ -578,6 +584,7 @@ class IVQueueManager:
 
         logger.opt(colors=True).info(
             f"<magenta>IVQueue Status:</magenta> <yellow>{pending} pending</yellow> | "
+            f"<white>{held} held</white> | "
             f"<blue>{awaiting_iv} awaiting IV</blue> | heap={heap_size} | "
             f"<cyan>Session: {total_queued} queued</cyan> / <green>{total_matches} matches</green> / <magenta>{total_early} early</magenta> / <cyan>{total_wild_early} wild_early</cyan> / <red>{total_timeouts} timeouts</red>"
         )
