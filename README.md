@@ -78,6 +78,7 @@ headers = ["HeaderName: Value"]
   - Empty list disables the feature
 - `scout.concurrency` - Max concurrent scout requests - Should match the number of scouts you have set in Dragonite
 - `scout.timeout_iv` - Seconds to wait for IV data before removing from queue - Liberating the scout to work (default: 180)
+- `scout.wild_scout_delay` - Seconds to hold `wild`/`nearby_stop` entries before scouting (default: `0`, disabled). Set to `15` if your scanner sends encounters immediately — IVs that arrive naturally during the hold are recorded as `wild_early` and no scout is wasted
 - `geofences.expire_cache_seconds` - How long to cache geofences before expiring (default: 1800)
 - `geofences.refresh_cache_seconds` - How often to refresh geofences from Koji (default: 1800)
 - `auto_rarity` - Dynamic rarity settings (when `AUTO_RARITY=TRUE`):
@@ -181,7 +182,7 @@ The `/reload` endpoint allows you to update config.json values without restartin
 **Reloadable settings:**
 - `ivlist`, `celllist`, `denylist` - Priority/block lists
 - `auto_rarity` settings - thresholds, intervals
-- `scout.concurrency`, `scout.timeout_iv` - Scout settings
+- `scout.concurrency`, `scout.timeout_iv`, `scout.wild_scout_delay` - Scout settings
 - `geofences` cache settings
 
 **Requires restart:**

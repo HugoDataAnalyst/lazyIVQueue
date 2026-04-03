@@ -337,6 +337,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
         seen_type=seen_type,
         s2_cell_id=s2_cell_id,
         list_type=stored_list_type,
+        eligible_at=time_module.time() + AppConfig.wild_scout_delay if seen_type != "nearby_cell" and AppConfig.wild_scout_delay > 0 else 0.0,
     )
 
     added = await queue.add(entry)
@@ -408,6 +409,13 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
                 f"({pokemon.iv_percent}%)"
             )
             queue.log_iv_per_hour()
+        elif removed.eligible_at > 0.0:
+            queue.record_wild_early_iv(pokemon.pokemon_display, removed.seen_type)
+            logger.opt(colors=True).success(
+                f"<cyan>[<]</cyan> Wild Early IV ({removed.list_type}): Pokemon {pokemon.pokemon_display} in {area} - "
+                f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
+                f"({pokemon.iv_percent}%)"
+            )
         else:
             queue.record_early_iv(pokemon.pokemon_display, removed.seen_type)
             logger.opt(colors=True).success(
