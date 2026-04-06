@@ -115,6 +115,8 @@ class LazyIVQueueApp:
                     await self._queue_manager.cleanup_expired()
                     # Clean up scouts that didn't receive IV data within timeout
                     await self._queue_manager.cleanup_timed_out_scouts()
+                    # Prune stale heap entries (lazy deletion cleanup)
+                    await self._queue_manager.cleanup_stale_heap_entries()
             except asyncio.CancelledError:
                 break
             except Exception as e:

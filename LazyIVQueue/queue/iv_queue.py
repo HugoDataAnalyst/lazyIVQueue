@@ -694,3 +694,25 @@ class IVQueueManager:
             )
 
         return removed_count
+
+    async def cleanup_stale_heap_entries(self) -> int:
+        """
+        Remove stale entries from the heap (lazy deletion cleanup).
+
+        Entries marked is_removed or no longer in self._entries are physically
+        pruned from the heap. Called periodically to prevent unbounded heap growth,
+        especially when held entries (eligible_at) block lazy cleanup in get_next_for_scout().
+
+        Returns:
+            Number of stale entries removed from the heap.
+        """
+        async with self._queue_lock:
+            before = len(self._heap)
+            clean = [e for e in self._heap if not e.is_removed and e.unique_key in self._entries]
+            if len(clean) < before:
+                heapq.heapify(clean)
+                self._heap = clean
+                removed = before - len(clean)
+                logger.debug(f"Heap cleanup: pruned {removed} stale entries (heap: {before} → {len(clean)})")
+                return removed
+        return 0
