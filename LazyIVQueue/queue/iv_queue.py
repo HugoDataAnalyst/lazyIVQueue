@@ -386,8 +386,27 @@ class IVQueueManager:
 
                 # Hold check: entry not yet eligible for scouting
                 if entry.eligible_at > time.time():
-                    self._scout_semaphore.release()
-                    return None
+                    # Top entry is held — find best eligible entry from active entries
+                    # rather than blocking all lower-priority scouts during the hold window
+                    now = time.time()
+                    eligible = min(
+                        (e for e in self._entries.values()
+                         if not e.is_removed and not e.is_scouting and not e.was_scouted
+                         and e.eligible_at <= now),
+                        key=lambda e: (e.priority, e.timestamp),
+                        default=None,
+                    )
+                    if eligible is None:
+                        self._scout_semaphore.release()
+                        return None
+                    eligible.is_scouting = True
+                    eligible.scout_started_at = now
+                    self._active_scouts += 1
+                    logger.debug(
+                        f"Dispatching for scout (held bypass): {eligible.pokemon_display} in {eligible.area} "
+                        f"(active scouts: {self._active_scouts})"
+                    )
+                    return eligible
 
                 # Found valid entry
                 heapq.heappop(self._heap)
