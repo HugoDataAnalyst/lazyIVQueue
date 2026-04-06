@@ -386,8 +386,27 @@ class IVQueueManager:
 
                 # Hold check: entry not yet eligible for scouting
                 if entry.eligible_at > time.time():
-                    self._scout_semaphore.release()
-                    return None
+                    # Top entry is held — find best eligible entry from active entries
+                    # rather than blocking all lower-priority scouts during the hold window
+                    now = time.time()
+                    eligible = min(
+                        (e for e in self._entries.values()
+                         if not e.is_removed and not e.is_scouting and not e.was_scouted
+                         and e.eligible_at <= now),
+                        key=lambda e: (e.priority, e.timestamp),
+                        default=None,
+                    )
+                    if eligible is None:
+                        self._scout_semaphore.release()
+                        return None
+                    eligible.is_scouting = True
+                    eligible.scout_started_at = now
+                    self._active_scouts += 1
+                    logger.debug(
+                        f"Dispatching for scout (held bypass): {eligible.pokemon_display} in {eligible.area} "
+                        f"(active scouts: {self._active_scouts})"
+                    )
+                    return eligible
 
                 # Found valid entry
                 heapq.heappop(self._heap)
@@ -694,3 +713,25 @@ class IVQueueManager:
             )
 
         return removed_count
+
+    async def cleanup_stale_heap_entries(self) -> int:
+        """
+        Remove stale entries from the heap (lazy deletion cleanup).
+
+        Entries marked is_removed or no longer in self._entries are physically
+        pruned from the heap. Called periodically to prevent unbounded heap growth,
+        especially when held entries (eligible_at) block lazy cleanup in get_next_for_scout().
+
+        Returns:
+            Number of stale entries removed from the heap.
+        """
+        async with self._queue_lock:
+            before = len(self._heap)
+            clean = [e for e in self._heap if not e.is_removed and e.unique_key in self._entries]
+            if len(clean) < before:
+                heapq.heapify(clean)
+                self._heap = clean
+                removed = before - len(clean)
+                logger.debug(f"Heap cleanup: pruned {removed} stale entries (heap: {before} → {len(clean)})")
+                return removed
+        return 0
