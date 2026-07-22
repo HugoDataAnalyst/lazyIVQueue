@@ -8,7 +8,6 @@ from LazyIVQueue.utils.logger import logger
 # Default scout options for pokemon scanning
 DEFAULT_SCOUT_OPTIONS = {
     "pokemon": True,
-    "pokemon_encounter_radius": 70,  # meters
     "gmf": False,
     "routes": False,
     "showcases": False,
@@ -75,7 +74,7 @@ async def scout_single(
 
 async def get_scout_queue(client: APIClient) -> Any:
     """
-    GET /v2/scout/queue - Get current scout queue status.
+    GET /scout/queue - Get current scout queue status.
 
     Args:
         client: APIClient instance
@@ -83,14 +82,14 @@ async def get_scout_queue(client: APIClient) -> Any:
     Returns:
         Queue status response
     """
-    logger.debug("[scout] GET /scout/v2/queue")
-    response = await client.get("/scout/v2/queue")
+    logger.debug("[scout] GET /scout/queue")
+    response = await client.get("/scout/queue")
     return response
 
 
 async def clear_scout_queue(client: APIClient) -> Any:
     """
-    GET /v2/scout/clear - Clear the scout queue.
+    GET /scout/clear - Clear the scout queue.
 
     Args:
         client: APIClient instance
@@ -98,6 +97,6 @@ async def clear_scout_queue(client: APIClient) -> Any:
     Returns:
         API response
     """
-    logger.debug("[scout] GET /scout/v2/clear")
-    response = await client.get("/scout/v2/clear")
+    logger.debug("[scout] GET /scout/clear")
+    response = await client.get("/scout/clear")
     return response
