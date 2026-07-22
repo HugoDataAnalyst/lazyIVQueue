@@ -113,6 +113,13 @@ class LazyIVQueueServer:
             payload = await request.json()
             await self._process_payload(payload)
             return web.Response(status=200, text="OK")
+        except web.HTTPRequestEntityTooLarge:
+            logger.error(
+                f"Webhook payload exceeded max body size "
+                f"({AppConfig.lazyivqueue_max_body_size} bytes) — "
+                f"consider raising LAZYIVQUEUE_MAX_BODY_SIZE"
+            )
+            return web.Response(status=413, text="Payload Too Large")
         except Exception as e:
             logger.error(f"Error processing webhook: {e}")
             return web.Response(status=500, text="Internal Error")
@@ -157,6 +164,13 @@ class LazyIVQueueServer:
             payload = await request.json()
             await self._process_census_payload(payload)
             return web.Response(status=200, text="OK")
+        except web.HTTPRequestEntityTooLarge:
+            logger.error(
+                f"Census payload exceeded max body size "
+                f"({AppConfig.lazyivqueue_max_body_size} bytes) — "
+                f"consider raising LAZYIVQUEUE_MAX_BODY_SIZE"
+            )
+            return web.Response(status=413, text="Payload Too Large")
         except Exception as e:
             logger.error(f"Error processing census webhook: {e}")
             return web.Response(status=500, text="Internal Error")
@@ -312,7 +326,7 @@ class LazyIVQueueServer:
 
     async def start(self) -> None:
         """Start the API server."""
-        self._app = web.Application()
+        self._app = web.Application(client_max_size=AppConfig.lazyivqueue_max_body_size)
         self._app.router.add_post("/webhook", self.handle_webhook)
         self._app.router.add_post("/webhook/census", self.handle_census)
         self._app.router.add_get("/health", self.handle_health)
