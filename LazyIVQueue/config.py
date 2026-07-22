@@ -264,6 +264,7 @@ DRAGONITE_BEARER_KEY = get_env_var("DRAGONITE_BEARER_KEY", None)
 # LazyIVQueue Admin API
 lazyivqueue_host = get_env_var("LAZYIVQUEUE_HOST", "0.0.0.0")
 lazyivqueue_port = get_env_int("LAZYIVQUEUE_PORT", 7070)
+lazyivqueue_max_body_size = get_env_int("LAZYIVQUEUE_MAX_BODY_SIZE", 10 * 1024 * 1024)
 
 # Security
 allowed_ips = get_env_list("ALLOWED_IPS", None)
