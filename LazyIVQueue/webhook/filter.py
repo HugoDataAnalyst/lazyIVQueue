@@ -184,6 +184,30 @@ def is_in_denylist(pokemon: PokemonData) -> bool:
     return str(pokemon.pokemon_id) in AppConfig.denylist_parsed
 
 
+async def record_census_spawn(pokemon: PokemonData, area: str) -> None:
+    """
+    Record a spawn for rarity census tracking (RarityManager.add_spawn()).
+
+    Only active when AUTO_RARITY is enabled - otherwise RarityManager's background
+    tasks and tracking dict would run/grow forever for no purpose. Skips spawns
+    that have already despawned.
+    """
+    if not AppConfig.auto_rarity_enabled:
+        return
+
+    current_time = int(time_module.time())
+    if pokemon.disappear_time and pokemon.disappear_time < current_time:
+        return
+
+    rarity_manager = await RarityManager.get_instance()
+    await rarity_manager.add_spawn(
+        pokemon_id=pokemon.pokemon_id,
+        form=pokemon.form,
+        area=area,
+        despawn_time=pokemon.disappear_time or (current_time + 1800),
+    )
+
+
 async def process_pokemon_webhook(raw_data: Dict[str, Any]) -> None:
     """
     Main entry point for processing Pokemon webhooks.
@@ -211,8 +235,9 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
 
     If all pass: Add to IV queue and trigger scout
 
-    Every valid, non-despawned spawn is also recorded via RarityManager.add_spawn()
-    for rarity census tracking, regardless of whether it ends up queued.
+    When AUTO_RARITY is enabled, every valid, non-despawned spawn is also recorded
+    via RarityManager.add_spawn() for rarity census tracking, regardless of whether
+    it ends up queued.
     """
     # Check 2: Determine priority from celllist, ivlist, or auto_rarity
     priority: Optional[int] = None
@@ -234,15 +259,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
         area = found_area
 
     # Census: record every valid, non-despawned spawn for rarity ranking
-    current_time = int(time_module.time())
-    if not (pokemon.disappear_time and pokemon.disappear_time < current_time):
-        rarity_manager = await RarityManager.get_instance()
-        await rarity_manager.add_spawn(
-            pokemon_id=pokemon.pokemon_id,
-            form=pokemon.form,
-            area=area,
-            despawn_time=pokemon.disappear_time or (current_time + 1800),
-        )
+    await record_census_spawn(pokemon, area)
 
     # Skip unsupported seen_types (e.g., lure_wild, lure_pokestop) - queueing only, census above already ran
     supported_seen_types = {"wild", "nearby_stop", "nearby_cell"}
