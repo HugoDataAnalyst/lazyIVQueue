@@ -139,8 +139,9 @@ class RarityManager:
         """
         Get rarity rank for a Pokemon.
 
-        When FILTER_WITH_KOJI=FALSE (global mode), area is ignored - we just
-        look up the Pokemon in the single "GLOBAL" bucket.
+        When neither FILTER_WITH_KOJI nor FILTER_WITH_GEOFENCE_FILE is enabled
+        (global mode), area is ignored - we just look up the Pokemon in the
+        single "GLOBAL" bucket.
 
         Args:
             pokemon_id: Pokemon ID
@@ -157,8 +158,10 @@ class RarityManager:
             keys_to_try.append(f"{pokemon_id}:{form}")  # Exact form match first
         keys_to_try.append(str(pokemon_id))  # Any-form fallback
 
-        # In global mode (no Koji), just use "GLOBAL" area regardless of what was passed
-        lookup_area = "GLOBAL" if not AppConfig.filter_with_koji else area
+        # In global mode (no geofencing source active), just use "GLOBAL" area
+        # regardless of what was passed
+        geofencing_active = AppConfig.filter_with_koji or AppConfig.filter_with_geofence_file
+        lookup_area = area if geofencing_active else "GLOBAL"
 
         # Check rank cache with each key
         for pokemon_key in keys_to_try:
