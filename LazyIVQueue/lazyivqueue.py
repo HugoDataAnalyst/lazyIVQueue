@@ -51,8 +51,9 @@ class LazyIVQueueApp:
         logger.info("=" * 60)
 
         # 1. Initialize geofences
-        if AppConfig.filter_with_koji:
-            logger.info("Loading geofences from Koji...")
+        if AppConfig.filter_with_koji or AppConfig.filter_with_geofence_file:
+            source = "local file" if AppConfig.filter_with_geofence_file else "Koji"
+            logger.info(f"Loading geofences from {source}...")
             self._geofence_manager = await KojiGeofenceManager.get_instance()
             await self._geofence_manager.initialize()
 
@@ -64,7 +65,7 @@ class LazyIVQueueApp:
             else:
                 logger.warning("No geofences loaded - all Pokemon will be rejected!")
         else:
-            logger.info("Geofence filtering disabled (FILTER_WITH_KOJI=FALSE)")
+            logger.info("Geofence filtering disabled (FILTER_WITH_KOJI=FALSE, FILTER_WITH_GEOFENCE_FILE=FALSE)")
 
         # 2. Initialize IV queue
         logger.info("Initializing IV queue...")
