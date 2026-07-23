@@ -247,7 +247,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
 
     # Geofence resolution (shared by census recording + queueing below, resolved once)
     area = "GLOBAL"
-    if AppConfig.filter_with_koji:
+    if AppConfig.filter_with_koji or AppConfig.filter_with_geofence_file:
         geofence_manager = await KojiGeofenceManager.get_instance()
         found_area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
         if not found_area:
@@ -392,7 +392,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
 
     # Check 3: Geofence check (optional based on config)
     area = "GLOBAL"
-    if AppConfig.filter_with_koji:
+    if AppConfig.filter_with_koji or AppConfig.filter_with_geofence_file:
         geofence_manager = await KojiGeofenceManager.get_instance()
         area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
         if not area:
