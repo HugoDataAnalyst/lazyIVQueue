@@ -210,6 +210,9 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
     3. Coordinates inside Koji geofences (if FILTER_WITH_KOJI is enabled)
 
     If all pass: Add to IV queue and trigger scout
+
+    Every valid, non-despawned spawn is also recorded via RarityManager.add_spawn()
+    for rarity census tracking, regardless of whether it ends up queued.
     """
     # Check 2: Determine priority from celllist, ivlist, or auto_rarity
     priority: Optional[int] = None
@@ -217,7 +220,31 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
     s2_cell_id: Optional[str] = None
     list_type = "unknown"
 
-    # Skip unsupported seen_types (e.g., lure_wild, lure_pokestop)
+    # Geofence resolution (shared by census recording + queueing below, resolved once)
+    area = "GLOBAL"
+    if AppConfig.filter_with_koji:
+        geofence_manager = await KojiGeofenceManager.get_instance()
+        found_area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
+        if not found_area:
+            logger.debug(
+                f"Pokemon {pokemon.pokemon_display} at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
+                f"outside geofences, skipping"
+            )
+            return
+        area = found_area
+
+    # Census: record every valid, non-despawned spawn for rarity ranking
+    current_time = int(time_module.time())
+    if not (pokemon.disappear_time and pokemon.disappear_time < current_time):
+        rarity_manager = await RarityManager.get_instance()
+        await rarity_manager.add_spawn(
+            pokemon_id=pokemon.pokemon_id,
+            form=pokemon.form,
+            area=area,
+            despawn_time=pokemon.disappear_time or (current_time + 1800),
+        )
+
+    # Skip unsupported seen_types (e.g., lure_wild, lure_pokestop) - queueing only, census above already ran
     supported_seen_types = {"wild", "nearby_stop", "nearby_cell"}
     if seen_type not in supported_seen_types:
         logger.debug(f"Skipping unsupported seen_type: {seen_type}")
@@ -263,18 +290,6 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
                     logger.trace(f"Auto Rarity calibrating (no VIP lists), skipping {pokemon.pokemon_display}")
                     return
 
-            # Get area for rarity lookup (need to check geofence early for auto_rarity)
-            area = "GLOBAL"
-            if AppConfig.filter_with_koji:
-                geofence_manager = await KojiGeofenceManager.get_instance()
-                area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
-                if not area:
-                    logger.debug(
-                        f"Pokemon {pokemon.pokemon_display} at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
-                        f"outside geofences, skipping"
-                    )
-                    return
-
             # Get rarity rank (None = truly unknown, 1 = rarest, higher = more common)
             # High rank (beyond total tracked) = seen in census but rankings pending update
             rank = rarity_manager.get_rarity_rank(pokemon.pokemon_id, pokemon.form, area)
@@ -303,20 +318,7 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
             logger.trace(f"Pokemon {pokemon.pokemon_display} not in ivlist, skipping")
             return
 
-    # Check 3: Geofence check (optional based on config)
-    # Note: For auto_rarity, geofence was already checked above. For ivlist/celllist, check now.
-    if list_type in ("ivlist", "celllist"):
-        area = "GLOBAL"  # Consistent with census tracking
-        if AppConfig.filter_with_koji:
-            geofence_manager = await KojiGeofenceManager.get_instance()
-            area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
-            if not area:
-                logger.debug(
-                    f"Pokemon {pokemon.pokemon_display} at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
-                    f"outside geofences, skipping"
-                )
-                return
-    # else: area was already set by auto_rarity logic above
+    # Geofence already resolved once at the top of this function - no re-check needed here
 
     # All checks passed - add to queue
     # Simplify list_type for storage (remove rank info from auto_rarity)
@@ -425,44 +427,3 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
             )
         # Log updated queue status
         queue.log_queue_status()
-
-
-async def process_census_webhook(raw_data: Dict[str, Any]) -> None:
-    """
-    Process census Pokemon data for rarity tracking.
-    This receives ALL spawns (not just ivlist/celllist matches).
-    Tracks ALL Pokemon (with or without IV) to build accurate rarity rankings.
-    """
-    import time
-
-    pokemon = parse_pokemon_data(raw_data)
-    if not pokemon:
-        return
-
-    # Track ALL Pokemon spawns for rarity (not just those with IVs)
-    # This ensures rarity rankings are available when queue webhook arrives
-
-    # Skip if despawned
-    current_time = int(time.time())
-    if pokemon.disappear_time and pokemon.disappear_time < current_time:
-        return
-
-    # Determine area
-    area = "GLOBAL"
-    if AppConfig.filter_with_koji:
-        geofence_manager = await KojiGeofenceManager.get_instance()
-        found_area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
-        if found_area:
-            area = found_area
-        else:
-            # Outside geofences - skip for census too
-            return
-
-    # Add to rarity manager
-    rarity_manager = await RarityManager.get_instance()
-    await rarity_manager.add_spawn(
-        pokemon_id=pokemon.pokemon_id,
-        form=pokemon.form,
-        area=area,
-        despawn_time=pokemon.disappear_time or (current_time + 1800),
-    )
