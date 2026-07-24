@@ -5,7 +5,7 @@ from typing import Optional, Set, List
 from aiohttp import web
 
 from LazyIVQueue.utils.logger import logger
-from LazyIVQueue.webhook.filter import process_pokemon_webhook, process_census_webhook
+from LazyIVQueue.webhook.filter import process_pokemon_webhook
 from LazyIVQueue.rarity.manager import RarityManager
 from LazyIVQueue.queue.iv_queue import IVQueueManager
 import LazyIVQueue.config as AppConfig
@@ -92,11 +92,13 @@ class LazyIVQueueServer:
 
         Expected payload format from Golbat:
         {
-            "type": "pokemon",
+            "type": "pokemon_no_iv" | "pokemon_iv" | "pokemon",
             "message": { ... pokemon data ... }
         }
         or array of messages:
-        [{"type": "pokemon", "message": {...}}, ...]
+        [{"type": "pokemon_no_iv", "message": {...}}, ...]
+
+        Non-IV messages are also recorded for rarity census tracking.
         """
         # Validate IP
         if not self._validate_ip(request):
@@ -131,62 +133,12 @@ class LazyIVQueueServer:
         for msg in messages:
             msg_type = msg.get("type")
 
-            # We only care about pokemon messages
-            if msg_type == "pokemon":
+            # "pokemon" is the combined superset of pokemon_no_iv + pokemon_iv;
+            # all three are accepted equally
+            if msg_type in ("pokemon", "pokemon_no_iv", "pokemon_iv"):
                 pokemon_data = msg.get("message", {})
                 if pokemon_data:
                     await process_pokemon_webhook(pokemon_data)
-
-    async def handle_census(self, request: web.Request) -> web.Response:
-        """
-        Handle incoming census webhook POST requests.
-        Receives ALL Pokemon spawns for rarity tracking.
-
-        Expected payload format from Golbat:
-        {
-            "type": "pokemon",
-            "message": { ... pokemon data ... }
-        }
-        or array of messages.
-        """
-        # Validate IP
-        if not self._validate_ip(request):
-            client_ip = request.remote
-            logger.warning(f"Rejected census webhook from unauthorized IP: {client_ip}")
-            return web.Response(status=403, text="Forbidden")
-
-        # Validate auth
-        if not self._validate_auth(request):
-            logger.warning(f"Rejected census webhook with invalid auth from: {request.remote}")
-            return web.Response(status=401, text="Unauthorized")
-
-        try:
-            payload = await request.json()
-            await self._process_census_payload(payload)
-            return web.Response(status=200, text="OK")
-        except web.HTTPRequestEntityTooLarge:
-            logger.error(
-                f"Census payload exceeded max body size "
-                f"({AppConfig.lazyivqueue_max_body_size} bytes) — "
-                f"consider raising LAZYIVQUEUE_MAX_BODY_SIZE"
-            )
-            return web.Response(status=413, text="Payload Too Large")
-        except Exception as e:
-            logger.error(f"Error processing census webhook: {e}")
-            return web.Response(status=500, text="Internal Error")
-
-    async def _process_census_payload(self, payload) -> None:
-        """Process census webhook payload - feeds RarityManager."""
-        messages = payload if isinstance(payload, list) else [payload]
-
-        for msg in messages:
-            msg_type = msg.get("type")
-
-            # We only care about pokemon messages good sir
-            if msg_type == "pokemon":
-                pokemon_data = msg.get("message", {})
-                if pokemon_data:
-                    await process_census_webhook(pokemon_data)
 
     async def handle_health(self, request: web.Request) -> web.Response:
         """Health check endpoint."""
@@ -328,7 +280,6 @@ class LazyIVQueueServer:
         """Start the API server."""
         self._app = web.Application(client_max_size=AppConfig.lazyivqueue_max_body_size)
         self._app.router.add_post("/webhook", self.handle_webhook)
-        self._app.router.add_post("/webhook/census", self.handle_census)
         self._app.router.add_get("/health", self.handle_health)
         self._app.router.add_get("/stats", self.handle_stats)
         self._app.router.add_get("/queue", self.handle_queue_preview)
@@ -343,8 +294,7 @@ class LazyIVQueueServer:
         await self._site.start()
 
         logger.info(f"LazyIVQueue server started on http://{self.host}:{self.port}")
-        logger.debug(f"  POST /webhook        - Receive Golbat webhooks (secured)")
-        logger.debug(f"  POST /webhook/census - Receive ALL spawns for rarity tracking")
+        logger.debug(f"  POST /webhook        - Receive Golbat webhooks + rarity census (secured)")
         logger.debug(f"  GET  /health         - Health check")
         logger.debug(f"  GET  /stats          - Queue and rarity statistics")
         logger.debug(f"  GET  /queue          - Queue preview (?count=N)")

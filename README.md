@@ -62,7 +62,7 @@ types = ["pokemon"]
 headers = ["HeaderName: Value"]
 ```
 
-> Use `types = ["pokemon"]` (not `"pokemon_no_iv"`) so Golbat also sends IV-bearing encounters — required for early IV detection and avoids wasting scout slots on Pokemon already have IV data.
+> `/webhook` accepts `"pokemon"`, `"pokemon_no_iv"`, and `"pokemon_iv"` interchangeably — `"pokemon"` is the combined superset of the other two, so listing it alone is sufficient if you prefer. `pokemon_no_iv`/`pokemon_iv` fire separately (initial sighting, then IV completion) if you'd rather be explicit. Both no-IV and IV-bearing encounters are required — no-IV feeds queueing and rarity census, IV feeds early-IV detection and queue removal.
 
 ### config.json
 - `ivlist` - Priority list of Pokemon to scout for `wild`/`nearby_stop` seen_types (first = highest priority)
@@ -94,7 +94,7 @@ When `AUTO_RARITY=TRUE`, LazyIVQueue dynamically tracks Pokemon spawn rarity and
 
 ### How it works
 
-1. **Census Webhook**: Configure Golbat to send ALL Pokemon spawns to `/webhook/census`
+1. **Spawn Tracking**: Every non-IV spawn received on `/webhook` is automatically recorded for rarity tracking — no separate census webhook needed
 2. **Rarity Tracking**: The system tracks active spawns per area (or globally if Koji disabled)
 3. **Calibration**: During the calibration period, only ivlist/celllist Pokemon are queued
 4. **Dynamic Queueing**: After calibration, Pokemon with rarity rank below the threshold are queued
@@ -108,21 +108,7 @@ This ensures ivlist/celllist entries ALWAYS take priority over auto_rarity entri
 
 ### Golbat Configuration
 
-You need TWO webhook configurations in Golbat:
-
-```toml
-# Existing webhook for ivlist/celllist filtering
-[[webhooks]]
-url = "http://localhost:7070/webhook"
-types = ["pokemon"]
-headers = ["HeaderName: Value"]
-
-# Census webhook for rarity tracking (ALL spawns)
-[[webhooks]]
-url = "http://localhost:7070/webhook/census"
-types = ["pokemon"]
-headers = ["HeaderName: Value"]
-```
+A single webhook configuration covers both scouting and rarity tracking — see the example under **Security** above (`types = ["pokemon", "pokemon_no_iv", "pokemon_iv"]`). No separate census webhook is needed.
 
 ## Run
 
@@ -139,8 +125,7 @@ docker-compose up -d --build
 
 ## Endpoints
 
-- `POST /webhook` - Receives Pokemon webhooks from Golbat (ivlist/celllist filtering)
-- `POST /webhook/census` - Receives ALL Pokemon spawns for rarity tracking
+- `POST /webhook` - Receives Pokemon webhooks from Golbat (ivlist/celllist filtering + rarity census tracking)
 - `GET /health` - Health check
 - `GET /stats` - Queue, scout, and rarity statistics — includes IV/hour rates (nearby_cell, normal, combined)
 - `GET /queue` - Queue preview (next N entries, use `?count=N`)
