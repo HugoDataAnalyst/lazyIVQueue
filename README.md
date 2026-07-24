@@ -23,6 +23,9 @@ pip install -r requirements.txt
 # Copy config files
 cp .env.example .env
 cp LazyIVQueue/config/example.config.json LazyIVQueue/config/config.json
+
+# Only if using FILTER_WITH_GEOFENCE_FILE=TRUE instead of Koji:
+cp LazyIVQueue/config/example.geofences.json LazyIVQueue/config/geofences.json
 ```
 
 ## Configuration
@@ -46,11 +49,12 @@ cp LazyIVQueue/config/example.config.json LazyIVQueue/config/config.json
 - `AUTO_RARITY` - Enable dynamic rarity-based queueing (default: `FALSE`). See Auto Rarity section below
 
 **Koji Geofences**
-- `FILTER_WITH_KOJI` - Enable geofence filtering (default: `TRUE`). Set to `FALSE` to skip geofence checks
+- `FILTER_WITH_KOJI` - Enable geofence filtering via Koji (default: `TRUE`). Set to `FALSE` to skip Koji geofence checks
 - `KOJI_URL` - Full Koji base URL (e.g., `http://koji.example.com:8080`). Alternative to KOJI_IP/KOJI_PORT
 - `KOJI_IP` / `KOJI_PORT` - Koji host and port (default: `127.0.0.1:8080`)
 - `KOJI_TOKEN` - Koji bearer token for authentication
 - `KOJI_PROJECT_NAME` - Koji project name containing the geofences to use
+- `FILTER_WITH_GEOFENCE_FILE` - Load geofences from `LazyIVQueue/config/geofences.json` instead of Koji (default: `FALSE`). Only takes effect when `FILTER_WITH_KOJI=FALSE` — if both are `TRUE`, Koji wins and a warning is logged at startup. Copy `example.geofences.json` to get started. Both `Polygon` and `MultiPolygon` geometries are supported, from either source
 
 **Security**
 - `ALLOWED_IPS` - Comma-separated IPs allowed to POST webhooks (e.g., `127.0.0.1,192.168.1.100`)

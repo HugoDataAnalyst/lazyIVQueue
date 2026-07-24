@@ -76,6 +76,17 @@ koji_url = f"{koji_url_base}/api/v1/geofence/feature-collection/{koji_project_na
 # Filter with Koji geofences (if False, only ivlist filtering is applied)
 filter_with_koji: bool = get_env_var("FILTER_WITH_KOJI", "TRUE").upper() == "TRUE"
 
+# Filter with a local geofences.json file instead of Koji if koji is False
+filter_with_geofence_file: bool = get_env_var("FILTER_WITH_GEOFENCE_FILE", "FALSE").upper() == "TRUE"
+geofence_file_path = os.path.join(os.getcwd(), "LazyIVQueue", "config", "geofences.json")
+
+if filter_with_koji and filter_with_geofence_file:
+    logger.warning(
+        "Both FILTER_WITH_KOJI and FILTER_WITH_GEOFENCE_FILE are TRUE — using Koji "
+        "(FILTER_WITH_KOJI takes precedence, FILTER_WITH_GEOFENCE_FILE ignored)"
+    )
+    filter_with_geofence_file = False
+
 # Extract geofence settings
 geofence_expire_cache_seconds = config.get("geofences", {}).get("expire_cache_seconds", 3600)
 geofence_refresh_cache_seconds = config.get("geofences", {}).get("refresh_cache_seconds", 3500)

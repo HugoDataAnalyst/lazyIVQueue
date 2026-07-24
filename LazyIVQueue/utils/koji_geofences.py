@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
 from cachetools import TTLCache
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Point, Polygon, MultiPolygon
+from shapely.geometry import shape as shapely_shape
 from shapely.prepared import prep
 
 from LazyIVQueue.utils.logger import logger
@@ -19,7 +21,7 @@ class GeofenceArea:
     """Represents a single geofence area."""
 
     name: str
-    polygon: Polygon
+    polygon: Union[Polygon, MultiPolygon]
     prepared_polygon: Any  # PreparedGeometry for faster point-in-polygon checks
 
 
@@ -77,13 +79,15 @@ class KojiGeofenceManager:
             maxsize=1000, ttl=AppConfig.geofence_expire_cache_seconds
         )
 
-        # Create aiohttp session for API calls
-        self._session = aiohttp.ClientSession(
-            timeout=aiohttp.ClientTimeout(total=15)
-        )
+        # Create aiohttp session for API calls (not needed when reading from a local file)
+        if not AppConfig.filter_with_geofence_file:
+            self._session = aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=15)
+            )
 
         # Fetch geofences immediately on startup
-        logger.info("Fetching geofences from Koji...")
+        source = "local file" if AppConfig.filter_with_geofence_file else "Koji"
+        logger.info(f"Fetching geofences from {source}...")
         await self._fetch_and_update_geofences()
 
         # Start background refresh task
@@ -96,6 +100,12 @@ class KojiGeofenceManager:
         )
 
     async def _fetch_geofences(self) -> Dict[str, GeofenceArea]:
+        """Fetch geofences from the configured source (Koji API or local file)."""
+        if AppConfig.filter_with_geofence_file:
+            return await self._fetch_geofences_from_file()
+        return await self._fetch_geofences_from_koji()
+
+    async def _fetch_geofences_from_koji(self) -> Dict[str, GeofenceArea]:
         """
         Fetch geofences from Koji API.
 
@@ -133,10 +143,39 @@ class KojiGeofenceManager:
             logger.error(f"Unexpected error fetching geofences: {e}")
             return {}
 
+    async def _fetch_geofences_from_file(self) -> Dict[str, GeofenceArea]:
+        """
+        Fetch geofences from a local GeoJSON FeatureCollection file.
+
+        Path: LazyIVQueue/config/geofences.json (fixed, see FILTER_WITH_GEOFENCE_FILE)
+        """
+        path = AppConfig.geofence_file_path
+
+        try:
+            data = await asyncio.to_thread(self._read_json_file, path)
+            return self._parse_geojson(data)
+        except FileNotFoundError:
+            logger.error(
+                f"Geofence file not found at {path} - copy example.geofences.json "
+                f"or check FILTER_WITH_GEOFENCE_FILE"
+            )
+            return {}
+        except json.JSONDecodeError as e:
+            logger.error(f"Invalid JSON in geofence file {path}: {e}")
+            return {}
+        except Exception as e:
+            logger.error(f"Unexpected error reading geofence file {path}: {e}")
+            return {}
+
+    @staticmethod
+    def _read_json_file(path: str) -> Dict:
+        with open(path, "r") as f:
+            return json.load(f)
+
     def _parse_geojson(self, geojson: Dict) -> Dict[str, GeofenceArea]:
         """
         Parse GeoJSON FeatureCollection into GeofenceArea objects.
-        Only processes Polygon features, skips others.
+        Processes Polygon and MultiPolygon features, skips others.
         """
         geofences = {}
 
@@ -151,27 +190,18 @@ class KojiGeofenceManager:
                 geometry = feature.get("geometry", {})
                 geom_type = geometry.get("type")
 
-                # Only process Polygon geometries
-                if geom_type != "Polygon":
+                # Only process Polygon/MultiPolygon geometries
+                if geom_type not in ("Polygon", "MultiPolygon"):
                     if geom_type:
-                        logger.debug(f"Skipping non-Polygon geometry: {geom_type}")
+                        logger.debug(f"Skipping unsupported geometry: {geom_type}")
                     continue
 
                 # Get feature name
                 properties = feature.get("properties", {})
                 name = properties.get("name", "unknown")
 
-                # Get coordinates - GeoJSON Polygon has nested arrays
-                # coordinates[0] is the exterior ring
-                coords = geometry.get("coordinates", [[]])[0]
-
-                if len(coords) < 3:
-                    logger.warning(f"Invalid polygon for {name}: less than 3 coordinates")
-                    continue
-
-                # Create Shapely polygon
-                # GeoJSON uses [lon, lat], Shapely expects (lon, lat) tuples
-                polygon = Polygon(coords)
+                # Build the Shapely geometry directly from the GeoJSON dict
+                polygon = shapely_shape(geometry)
 
                 if not polygon.is_valid:
                     logger.warning(f"Invalid polygon geometry for {name}, attempting to fix")
