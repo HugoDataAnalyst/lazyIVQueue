@@ -459,9 +459,22 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
         # Log updated queue status
         queue.log_queue_status()
     else:
-        logger.opt(colors=True).warning(
-            f"<yellow>[?]</yellow> IV received but no matching queue entry: Pokemon {pokemon.pokemon_display} "
-            f"[encounter_id: {pokemon.encounter_id}] at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) in {area} - "
-            f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
-            f"(already removed, never queued, or encounter_id/geofence mismatch)"
-        )
+        # Only worth warning about if this Pokemon was actually a queueing candidate.
+        # With auto_rarity enabled, most wild IVs are for common Pokemon that were
+        # correctly never queued (rank above iv_threshold) - warning on every one of
+        # those would be pure noise. Only flag VIP-list Pokemon (always meaningful) or
+        # auto_rarity Pokemon that currently rank within the threshold (i.e. would be
+        # queued right now, so a miss is a real anomaly).
+        should_warn = in_vip_list
+        if not should_warn and AppConfig.auto_rarity_enabled:
+            rarity_manager = await RarityManager.get_instance()
+            rank = rarity_manager.get_rarity_rank(pokemon.pokemon_id, pokemon.form, area)
+            should_warn = rank is None or rank <= AppConfig.iv_threshold
+
+        if should_warn:
+            logger.opt(colors=True).warning(
+                f"<yellow>[?]</yellow> IV received but no matching queue entry: Pokemon {pokemon.pokemon_display} "
+                f"[encounter_id: {pokemon.encounter_id}] at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) in {area} - "
+                f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
+                f"(already removed, never queued, or encounter_id/geofence mismatch)"
+            )
