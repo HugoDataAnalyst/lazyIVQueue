@@ -459,6 +459,12 @@ class IVQueueManager:
         """Return current queue size (excluding entries being scouted)."""
         return len(self._entries)
 
+    def has_pending_entry(self, encounter_id: Optional[str]) -> bool:
+        """Check whether a queued entry with this encounter_id exists (diagnostic use only)."""
+        if not encounter_id:
+            return False
+        return encounter_id in self._entries
+
     def get_available_slots(self) -> int:
         """Return number of available scout slots."""
         return AppConfig.concurrency_scout - self._active_scouts

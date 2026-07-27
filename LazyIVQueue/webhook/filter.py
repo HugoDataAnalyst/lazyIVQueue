@@ -396,21 +396,24 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
         return
 
     # Check 3: Geofence check (optional based on config)
+    queue = await IVQueueManager.get_instance()
     area = "GLOBAL"
     if AppConfig.filter_with_koji or AppConfig.filter_with_geofence_file:
         geofence_manager = await KojiGeofenceManager.get_instance()
         area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
         if not area:
-            logger.opt(colors=True).warning(
-                f"<yellow>[?]</yellow> IV received but outside all geofences: Pokemon {pokemon.pokemon_display} "
-                f"[encounter_id: {pokemon.encounter_id}] at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
-                f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} - "
-                f"if this Pokemon was queued, its no-IV sighting must have passed the geofence check"
-            )
+            # Only worth warning about if this encounter was actually queued - otherwise
+            # this is just routine traffic from outside the configured geofences
+            if queue.has_pending_entry(pokemon.encounter_id):
+                logger.opt(colors=True).warning(
+                    f"<yellow>[?]</yellow> IV received but outside all geofences: Pokemon {pokemon.pokemon_display} "
+                    f"[encounter_id: {pokemon.encounter_id}] at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
+                    f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} - "
+                    f"was queued, but IV coordinates now resolve outside all geofences (coordinate drift?)"
+                )
             return
 
     # Check 4: Match against removal
-    queue = await IVQueueManager.get_instance()
     removed: Optional[QueueEntry] = None
 
     removed = await queue.remove_by_match(
