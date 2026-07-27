@@ -91,6 +91,8 @@ class LazyIVQueueApp:
         logger.info(f"  Webhook: http://{AppConfig.lazyivqueue_host}:{AppConfig.lazyivqueue_port}/webhook")
         logger.info(f"  Auto Rarity: {AppConfig.auto_rarity_enabled}")
         logger.info(f"  Scout concurrency: {AppConfig.concurrency_scout}")
+        logger.info(f"  Wild scout delay: {AppConfig.wild_scout_delay}s")
+        logger.info(f"  IV timeout: {AppConfig.timeout_iv}s")
         logger.info(f"  IV list entries: {len(AppConfig.ivlist)}")
         logger.info(f"  Cell list entries: {len(AppConfig.celllist)}")
         logger.info(f"  Deny list entries: {len(AppConfig.denylist)}")

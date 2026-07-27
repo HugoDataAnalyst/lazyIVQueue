@@ -217,6 +217,8 @@ class LazyIVQueueServer:
                 },
                 "scout": {
                     "concurrency": AppConfig.concurrency_scout,
+                    "timeout_iv": AppConfig.timeout_iv,
+                    "wild_scout_delay": AppConfig.wild_scout_delay,
                 },
                 "ivlist": {
                     "count": len(AppConfig.ivlist),

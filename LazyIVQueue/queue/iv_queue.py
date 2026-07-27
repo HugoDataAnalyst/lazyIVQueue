@@ -160,7 +160,10 @@ class IVQueueManager:
 
             # Check for duplicate
             if key in self._entries:
-                logger.debug(f"Duplicate entry skipped: {key}")
+                logger.warning(
+                    f"Duplicate/non-IV webhook for already-queued entry: "
+                    f"{entry.pokemon_display} [{key}] ({entry.seen_type})"
+                )
                 return False
 
             # Add to heap and lookup dict

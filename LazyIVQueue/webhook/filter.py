@@ -388,6 +388,11 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
     in_vip_list = is_in_any_list(pokemon)
     if not in_vip_list and not AppConfig.auto_rarity_enabled:
         # Not in VIP list and auto_rarity disabled = skip
+        logger.opt(colors=True).warning(
+            f"<yellow>[?]</yellow> IV received but not in VIP list and auto_rarity disabled: "
+            f"Pokemon {pokemon.pokemon_display} [encounter_id: {pokemon.encounter_id}] "
+            f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} - skipping"
+        )
         return
 
     # Check 3: Geofence check (optional based on config)
@@ -396,6 +401,12 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
         geofence_manager = await KojiGeofenceManager.get_instance()
         area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
         if not area:
+            logger.opt(colors=True).warning(
+                f"<yellow>[?]</yellow> IV received but outside all geofences: Pokemon {pokemon.pokemon_display} "
+                f"[encounter_id: {pokemon.encounter_id}] at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
+                f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} - "
+                f"if this Pokemon was queued, its no-IV sighting must have passed the geofence check"
+            )
             return
 
     # Check 4: Match against removal
@@ -444,3 +455,10 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
             )
         # Log updated queue status
         queue.log_queue_status()
+    else:
+        logger.opt(colors=True).warning(
+            f"<yellow>[?]</yellow> IV received but no matching queue entry: Pokemon {pokemon.pokemon_display} "
+            f"[encounter_id: {pokemon.encounter_id}] at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) in {area} - "
+            f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
+            f"(already removed, never queued, or encounter_id/geofence mismatch)"
+        )
