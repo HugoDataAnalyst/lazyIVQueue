@@ -69,10 +69,13 @@ headers = ["HeaderName: Value"]
 > `/webhook` accepts `"pokemon"`, `"pokemon_no_iv"`, and `"pokemon_iv"` interchangeably — `"pokemon"` is the combined superset of the other two, so listing it alone is sufficient if you prefer. `pokemon_no_iv`/`pokemon_iv` fire separately (initial sighting, then IV completion) if you'd rather be explicit. Both no-IV and IV-bearing encounters are required — no-IV feeds queueing and rarity census, IV feeds early-IV detection and queue removal.
 
 ### config.json
-- `ivlist` - Priority list of Pokemon to scout for `wild`/`nearby_stop` seen_types (first = highest priority)
+- `ivlist` - Priority list of Pokemon to scout for `wild`/`nearby_stop` seen_types
   - `"pokemon_id"` - Match any form (e.g., `"1"` matches Bulbasaur any form)
   - `"pokemon_id:form"` - Match specific form only (e.g., `"3:0"` matches Venusaur form 0)
-  - Example: `["Pokemon A", "Pokemon B:0", "Pokemon C"]` - A is top priority, then B form 0, then C
+  - `"pokemon_id:form:costume"` - Match specific form AND costume (e.g., `"25:any:1"` matches Pikachu any form, costume 1 only)
+  - `"any"` (case-insensitive) in the form or costume position means "no filter on this field" — needed to target a costume without narrowing form (`"25:any:1"`), or to be explicit about matching any form (`"25:any"`, same as `"25"`)
+  - Match precedence is **strict list order**: the earliest entry in the list that matches a sighting wins, regardless of how specific it is compared to other matching entries later in the list — e.g. with `["25", "25:0"]`, a form-0 sighting of Pokemon 25 matches `"25"` (index 0), not `"25:0"` (index 1)
+  - Example: `["Pokemon A", "Pokemon B:0", "Pokemon C:any:1"]` - A is top priority, then B form 0, then C any form costume 1 only
 - `celllist` - Priority list for `nearby_cell` seen_type (same format as ivlist)
   - Celllist entries are always processed before ivlist entries, so only insert really important ones here
   - Uses 9x9 pattern (9 coordinates) to cover S2 level-15 cell
