@@ -388,18 +388,32 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
     in_vip_list = is_in_any_list(pokemon)
     if not in_vip_list and not AppConfig.auto_rarity_enabled:
         # Not in VIP list and auto_rarity disabled = skip
+        logger.opt(colors=True).warning(
+            f"<yellow>[?]</yellow> IV received but not in VIP list and auto_rarity disabled: "
+            f"Pokemon {pokemon.pokemon_display} [encounter_id: {pokemon.encounter_id}] "
+            f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} - skipping"
+        )
         return
 
     # Check 3: Geofence check (optional based on config)
+    queue = await IVQueueManager.get_instance()
     area = "GLOBAL"
     if AppConfig.filter_with_koji or AppConfig.filter_with_geofence_file:
         geofence_manager = await KojiGeofenceManager.get_instance()
         area = geofence_manager.is_point_in_geofence(pokemon.latitude, pokemon.longitude)
         if not area:
+            # Only worth warning about if this encounter was actually queued - otherwise
+            # this is just routine traffic from outside the configured geofences
+            if queue.has_pending_entry(pokemon.encounter_id):
+                logger.opt(colors=True).warning(
+                    f"<yellow>[?]</yellow> IV received but outside all geofences: Pokemon {pokemon.pokemon_display} "
+                    f"[encounter_id: {pokemon.encounter_id}] at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
+                    f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} - "
+                    f"was queued, but IV coordinates now resolve outside all geofences (coordinate drift?)"
+                )
             return
 
     # Check 4: Match against removal
-    queue = await IVQueueManager.get_instance()
     removed: Optional[QueueEntry] = None
 
     removed = await queue.remove_by_match(
@@ -444,3 +458,15 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
             )
         # Log updated queue status
         queue.log_queue_status()
+    else:
+        # Only worth warning about if THIS SPECIFIC encounter was genuinely queued at
+        # some point - not just "is this pokemon_id the kind of thing that gets queued"
+        # (VIP-list/rank-eligible Pokemon routinely get IV directly on their very first
+        # webhook, with no prior no-IV sighting ever sent - that's normal, not a bug).
+        if queue.was_recently_queued(pokemon.encounter_id):
+            logger.opt(colors=True).warning(
+                f"<yellow>[?]</yellow> IV received but no matching queue entry: Pokemon {pokemon.pokemon_display} "
+                f"[encounter_id: {pokemon.encounter_id}] at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) in {area} - "
+                f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} "
+                f"(was queued, but no longer found - already removed, or encounter_id/geofence mismatch)"
+            )

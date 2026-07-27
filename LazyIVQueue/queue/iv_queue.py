@@ -7,6 +7,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from cachetools import TTLCache
+
 from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
 import LazyIVQueue.config as AppConfig
@@ -89,6 +91,10 @@ class IVQueueManager:
         self._queue_lock: asyncio.Lock = asyncio.Lock()
         self._initialized: bool = False
 
+        # Tracks encounter_ids that were genuinely queued, surviving entry removal,
+        # so late-arriving IV can be told apart from "never queued" (diagnostic use only)
+        self._recently_queued: Optional[TTLCache] = None
+
         # Stats counters by seen_type
         self._seen_types = ["wild", "nearby_stop", "nearby_cell"]
         self._queued_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
@@ -123,6 +129,9 @@ class IVQueueManager:
 
         self._scout_semaphore = asyncio.Semaphore(AppConfig.concurrency_scout)
         self._current_concurrency = AppConfig.concurrency_scout
+        # Generous TTL: must outlive the longest possible entry lifetime (held + scouted + timeout)
+        recently_queued_ttl = max(600, AppConfig.wild_scout_delay + AppConfig.timeout_iv + 120)
+        self._recently_queued = TTLCache(maxsize=50000, ttl=recently_queued_ttl)
         self._initialized = True
         logger.info(f"IVQueue initialized with concurrency limit: {AppConfig.concurrency_scout}")
 
@@ -160,12 +169,16 @@ class IVQueueManager:
 
             # Check for duplicate
             if key in self._entries:
-                logger.debug(f"Duplicate entry skipped: {key}")
+                logger.warning(
+                    f"Duplicate/non-IV webhook for already-queued entry: "
+                    f"{entry.pokemon_display} [{key}] ({entry.seen_type})"
+                )
                 return False
 
             # Add to heap and lookup dict
             heapq.heappush(self._heap, entry)
             self._entries[key] = entry
+            self._recently_queued[key] = True
 
             # Update stats by seen_type (skip unknown types)
             seen_type = entry.seen_type
@@ -455,6 +468,23 @@ class IVQueueManager:
     def get_queue_size(self) -> int:
         """Return current queue size (excluding entries being scouted)."""
         return len(self._entries)
+
+    def has_pending_entry(self, encounter_id: Optional[str]) -> bool:
+        """Check whether a queued entry with this encounter_id exists (diagnostic use only)."""
+        if not encounter_id:
+            return False
+        return encounter_id in self._entries
+
+    def was_recently_queued(self, encounter_id: Optional[str]) -> bool:
+        """
+        Check whether this encounter_id was genuinely queued recently, even if the
+        entry has since been removed (diagnostic use only - distinguishes a real
+        queued-then-missed-match from a Pokemon that got IV directly and was never
+        queued at all, which is normal and not a bug).
+        """
+        if not encounter_id or self._recently_queued is None:
+            return False
+        return encounter_id in self._recently_queued
 
     def get_available_slots(self) -> int:
         """Return number of available scout slots."""
