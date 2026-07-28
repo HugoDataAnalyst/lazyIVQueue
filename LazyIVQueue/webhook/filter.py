@@ -36,6 +36,7 @@ class PokemonData:
     encounter_id: Optional[str]
     disappear_time: Optional[int]
     seen_type: str  # "wild", "nearby_stop", or "nearby_cell"
+    costume: Optional[int] = None
 
     @property
     def has_iv(self) -> bool:
@@ -43,23 +44,12 @@ class PokemonData:
         return self.individual_attack is not None
 
     @property
-    def ivlist_key(self) -> str:
-        """Get key for ivlist lookup (pokemon_id:form)."""
-        if self.form is not None:
-            return f"{self.pokemon_id}:{self.form}"
-        return str(self.pokemon_id)
-
-    @property
-    def ivlist_key_any_form(self) -> str:
-        """Get key for any-form lookup (just pokemon_id)."""
-        return str(self.pokemon_id)
-
-    @property
     def pokemon_display(self) -> str:
         """Human-readable pokemon identifier."""
-        if self.form is not None:
-            return f"{self.pokemon_id}:{self.form}"
-        return str(self.pokemon_id)
+        display = f"{self.pokemon_id}:{self.form}" if self.form is not None else str(self.pokemon_id)
+        if self.costume:
+            display += f":{self.costume}"
+        return display
 
     @property
     def iv_total(self) -> int:
@@ -93,6 +83,7 @@ def parse_pokemon_data(raw: Dict[str, Any]) -> Optional[PokemonData]:
     - individual_stamina: int (optional)
     - encounter_id: str
     - disappear_time: int (unix timestamp)
+    - costume: int (optional, 0 = no costume)
     """
     try:
         pokemon_id = raw.get("pokemon_id")
@@ -116,10 +107,40 @@ def parse_pokemon_data(raw: Dict[str, Any]) -> Optional[PokemonData]:
             encounter_id=raw.get("encounter_id"),
             disappear_time=raw.get("disappear_time"),
             seen_type=raw.get("seen_type", "wild"),
+            costume=raw.get("costume"),
         )
     except (ValueError, TypeError) as e:
         logger.warning(f"Error parsing Pokemon data: {e}")
         return None
+
+
+def _match_priority(
+    pokemon_id: int,
+    form: Optional[int],
+    costume: Optional[int],
+    parsed: Dict[AppConfig.IVListKey, int],
+) -> Optional[int]:
+    """
+    Look up priority for a (pokemon_id, form, costume) combination against a
+    parsed ivlist/celllist/denylist dict.
+
+    Checks all wildcard-normalized candidate keys (exact form/costume, exact
+    form only, exact costume only, any/any) and returns the MINIMUM priority
+    among the ones that hit - since priority is list index, this means the
+    earliest-configured matching entry wins, regardless of specificity.
+    """
+    pid = str(pokemon_id)
+    form_s = str(form) if form is not None else None
+    costume_s = str(costume) if costume is not None else None
+
+    candidates = {
+        (pid, form_s, costume_s),
+        (pid, form_s, None),
+        (pid, None, costume_s),
+        (pid, None, None),
+    }
+    priorities = [parsed[key] for key in candidates if key in parsed]
+    return min(priorities) if priorities else None
 
 
 def is_in_ivlist(pokemon: PokemonData) -> Tuple[bool, Optional[int]]:
@@ -129,18 +150,8 @@ def is_in_ivlist(pokemon: PokemonData) -> Tuple[bool, Optional[int]]:
     Returns:
         (matches: bool, priority: Optional[int])
     """
-    # First check exact match (pokemon_id:form)
-    if pokemon.form is not None:
-        key = f"{pokemon.pokemon_id}:{pokemon.form}"
-        if key in AppConfig.ivlist_parsed:
-            return True, AppConfig.ivlist_parsed[key]
-
-    # Then check any-form match (just pokemon_id)
-    key = str(pokemon.pokemon_id)
-    if key in AppConfig.ivlist_parsed:
-        return AppConfig.ivlist_parsed[key] is not None, AppConfig.ivlist_parsed.get(key)
-
-    return False, None
+    priority = _match_priority(pokemon.pokemon_id, pokemon.form, pokemon.costume, AppConfig.ivlist_parsed)
+    return priority is not None, priority
 
 
 def is_in_celllist(pokemon: PokemonData) -> Tuple[bool, Optional[int]]:
@@ -151,21 +162,8 @@ def is_in_celllist(pokemon: PokemonData) -> Tuple[bool, Optional[int]]:
         (matches: bool, priority: Optional[int])
         Priority uses tier 0 (highest) for celllist entries.
     """
-    # First check exact match (pokemon_id:form)
-    if pokemon.form is not None:
-        key = f"{pokemon.pokemon_id}:{pokemon.form}"
-        if key in AppConfig.celllist_parsed:
-            # Tier 0: celllist (highest priority)
-            # Sub-priority within tier based on position in list
-            return True, AppConfig.celllist_parsed[key]
-
-    # Then check any-form match (just pokemon_id)
-    key = str(pokemon.pokemon_id)
-    if key in AppConfig.celllist_parsed:
-        if AppConfig.celllist_parsed[key] is not None:
-            return True, AppConfig.celllist_parsed[key]
-
-    return False, None
+    priority = _match_priority(pokemon.pokemon_id, pokemon.form, pokemon.costume, AppConfig.celllist_parsed)
+    return priority is not None, priority
 
 
 def is_in_any_list(pokemon: PokemonData) -> bool:
@@ -177,11 +175,8 @@ def is_in_any_list(pokemon: PokemonData) -> bool:
 
 def is_in_denylist(pokemon: PokemonData) -> bool:
     """Check if Pokemon matches the denylist (should not be scouted)."""
-    if pokemon.form is not None:
-        key = f"{pokemon.pokemon_id}:{pokemon.form}"
-        if key in AppConfig.denylist_parsed:
-            return True
-    return str(pokemon.pokemon_id) in AppConfig.denylist_parsed
+    priority = _match_priority(pokemon.pokemon_id, pokemon.form, pokemon.costume, AppConfig.denylist_parsed)
+    return priority is not None
 
 
 async def record_census_spawn(pokemon: PokemonData, area: str) -> None:

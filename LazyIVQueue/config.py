@@ -4,7 +4,7 @@ from webbrowser import get
 import dotenv
 
 from LazyIVQueue.utils.logger import logger
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Tuple
 
 # load config.json
 
@@ -97,28 +97,42 @@ log_level = get_env_var("LOG_LEVEL", "INFO").upper()
 log_file = get_env_var("LOG_FILE", "FALSE").upper() == "TRUE"
 
 # IVQueue - Priority list of Pokemon to scout
-# Format: ["1", "3:0", "10:0"] where "1" = pokemon_id 1 any form, "3:0" = pokemon_id 3 form 0
-# Lower index = higher priority (first item is highest priority)
+# Format: ["1", "3:0", "10:0", "25:any:1"] where "1" = pokemon_id 1 any form,
+# "3:0" = pokemon_id 3 form 0, "25:any:1" = pokemon_id 25 any form costume 1.
+# "any" (case-insensitive) in the form or costume position means no filter there.
+# Lower index = higher priority (first item is highest priority); match precedence
+# is strict list order - the earliest entry that matches wins, regardless of specificity.
 ivlist: List[str] = config.get("ivlist", [])
 celllist: List[str] = config.get("celllist", [])
 denylist: List[str] = config.get("denylist", [])
 timeout_iv: int = config.get("scout", {}).get("timeout_iv", 180)
 wild_scout_delay: int = config.get("scout", {}).get("wild_scout_delay", 0)
 
-def parse_ivlist(raw_list: List[str]) -> Dict[str, int]:
+IVListKey = Tuple[str, Optional[str], Optional[str]]
+
+def parse_ivlist(raw_list: List[str]) -> Dict[IVListKey, int]:
     """
-    Parses ivlist into {pokemon_key: priority} mapping.
-    Returns dict where key is "pokemon_id" or "pokemon_id:form"
-    and value is priority (0 = highest).
+    Parses ivlist into {(pokemon_id, form, costume): priority} mapping.
+    Entry format: "pokemon_id", "pokemon_id:form", or "pokemon_id:form:costume".
+    "any" (case-insensitive) in the form or costume position means no filter
+    on that field. Priority is list index (0 = highest).
     """
-    result = {}
-    for idx, entry in enumerate(raw_list):
-        result[entry.strip()] = idx
+    result: Dict[IVListKey, int] = {}
+    for idx, raw_entry in enumerate(raw_list):
+        parts = [p.strip() for p in raw_entry.strip().split(":")]
+        pokemon_id = parts[0]
+        form = parts[1] if len(parts) > 1 else None
+        costume = parts[2] if len(parts) > 2 else None
+        if form and form.lower() == "any":
+            form = None
+        if costume and costume.lower() == "any":
+            costume = None
+        result[(pokemon_id, form, costume)] = idx
     return result
 
-ivlist_parsed: Dict[str, int] = parse_ivlist(ivlist)
-celllist_parsed: Dict[str, int] = parse_ivlist(celllist)
-denylist_parsed: Dict[str, int] = parse_ivlist(denylist)
+ivlist_parsed: Dict[IVListKey, int] = parse_ivlist(ivlist)
+celllist_parsed: Dict[IVListKey, int] = parse_ivlist(celllist)
+denylist_parsed: Dict[IVListKey, int] = parse_ivlist(denylist)
 
 
 def reload_config() -> Dict[str, any]:
@@ -239,28 +253,6 @@ def reload_config() -> Dict[str, any]:
         logger.info("Config reloaded - no changes detected")
 
     return changes
-
-def get_pokemon_priority(pokemon_id: int, form: Optional[int]) -> Optional[int]:
-    """
-    Get priority for a pokemon based on ivlist.
-    Returns None if not in ivlist.
-    """
-    # First check exact match (pokemon_id:form)
-    if form is not None:
-        key = f"{pokemon_id}:{form}"
-        if key in ivlist_parsed:
-            return ivlist_parsed[key]
-
-    # Then check any-form match (just pokemon_id)
-    key = str(pokemon_id)
-    if key in ivlist_parsed:
-        return ivlist_parsed[key]
-
-    return None
-
-def is_pokemon_in_ivlist(pokemon_id: int, form: Optional[int]) -> bool:
-    """Check if pokemon matches ivlist."""
-    return get_pokemon_priority(pokemon_id, form) is not None
 
 # Scout concurrency
 concurrency_scout: int = config.get("scout", {}).get("concurrency", 5)
