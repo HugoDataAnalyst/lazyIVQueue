@@ -764,10 +764,13 @@ class IVQueueManager:
                 if entry.scout_started_at:
                     elapsed = current_time - entry.scout_started_at
                     if elapsed > timeout_threshold:
+                        # Matches the same s2_cell_id check ScoutCoordinator._execute_scout()
+                        # uses to decide between the 9-point cell grid vs a single iv coordinate
+                        scout_method = "cell" if entry.s2_cell_id else "iv"
                         logger.opt(colors=True).warning(
                             f"<red>[x]</red> Scout timeout: Pokemon {entry.pokemon_display} in {entry.area} "
-                            f"[encounter_id: {entry.encounter_id}] ({entry.list_type}, {entry.seen_type}) - "
-                            f"no IV after {int(elapsed)}s (scout dispatched at "
+                            f"[encounter_id: {entry.encounter_id}] ({entry.list_type}, {entry.seen_type}, "
+                            f"scout={scout_method}) - no IV after {int(elapsed)}s (scout dispatched at "
                             f"{entry.scout_started_at:.3f}, timeout_iv={timeout_threshold}s) - "
                             f"grep this encounter_id against '[>] Scout sent' to find the original dispatch"
                         )
