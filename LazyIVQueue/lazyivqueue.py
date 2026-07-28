@@ -92,6 +92,7 @@ class LazyIVQueueApp:
         logger.info(f"  Auto Rarity: {AppConfig.auto_rarity_enabled}")
         logger.info(f"  Scout concurrency: {AppConfig.concurrency_scout}")
         logger.info(f"  Wild scout delay: {AppConfig.wild_scout_delay}s")
+        logger.info(f"  Scout jump delay: {AppConfig.scout_jump_delay}s")
         logger.info(f"  IV timeout: {AppConfig.timeout_iv}s")
         logger.info(f"  IV list entries: {len(AppConfig.ivlist)}")
         logger.info(f"  Cell list entries: {len(AppConfig.celllist)}")
