@@ -11,6 +11,7 @@ from cachetools import TTLCache
 
 from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
+from LazyIVQueue.utils.encounter_utils import normalize_encounter_id
 import LazyIVQueue.config as AppConfig
 
 
@@ -50,6 +51,12 @@ class QueueEntry:
     was_scouted: bool = field(compare=False, default=False)  # True after scout sent, waiting for IV
     scout_started_at: Optional[float] = field(compare=False, default=None)
     eligible_at: float = field(compare=False, default=0.0)  # unix timestamp; 0.0 = immediately eligible
+
+    def __post_init__(self) -> None:
+        # Normalize at construction so a signed/unsigned 64-bit representation
+        # mismatch between webhook deliveries can't cause a mismatched key.
+        if self.encounter_id:
+            self.encounter_id = normalize_encounter_id(self.encounter_id)
 
     @property
     def unique_key(self) -> str:
@@ -95,6 +102,12 @@ class IVQueueManager:
         # so late-arriving IV can be told apart from "never queued" (diagnostic use only)
         self._recently_queued: Optional[TTLCache] = None
 
+        # Tracks encounter_ids we've already received IV for (or matched), so a
+        # no-IV webhook for the same encounter arriving afterward (e.g. a retry,
+        # or out-of-order delivery) doesn't get re-queued into a stale entry
+        # that can never match again and will just time out.
+        self._completed_encounters: Optional[TTLCache] = None
+
         # Stats counters by seen_type
         self._seen_types = ["wild", "nearby_stop", "nearby_cell"]
         self._queued_by_type: Dict[str, int] = {t: 0 for t in self._seen_types}
@@ -132,6 +145,7 @@ class IVQueueManager:
         # Generous TTL: must outlive the longest possible entry lifetime (held + scouted + timeout)
         recently_queued_ttl = max(600, AppConfig.wild_scout_delay + AppConfig.timeout_iv + 120)
         self._recently_queued = TTLCache(maxsize=50000, ttl=recently_queued_ttl)
+        self._completed_encounters = TTLCache(maxsize=50000, ttl=900)
         self._initialized = True
         logger.info(f"IVQueue initialized with concurrency limit: {AppConfig.concurrency_scout}")
 
@@ -165,6 +179,15 @@ class IVQueueManager:
             True if added, False if duplicate
         """
         async with self._queue_lock:
+            # Skip re-queueing an encounter we already have IV for (e.g. a
+            # retried/duplicate no-IV webhook arriving after the IV one)
+            if self.is_encounter_completed(entry.encounter_id):
+                logger.debug(
+                    f"Skipping queue for already-completed encounter: "
+                    f"{entry.pokemon_display} [{entry.encounter_id}]"
+                )
+                return False
+
             key = entry.unique_key
 
             # Check for duplicate
@@ -202,7 +225,8 @@ class IVQueueManager:
         Remove entry matching by encounter_id (exact) or coordinates (70m proximity).
 
         Matching order:
-        1. Exact encounter_id match (if provided)
+        1. Exact encounter_id match (if provided), normalized to tolerate a
+           signed/unsigned 64-bit int representation mismatch
         2. Coordinate proximity match (70m threshold) + pokemon_id match
 
         Args:
@@ -217,12 +241,15 @@ class IVQueueManager:
         """
         removed = None
         was_scouting = False
+        target_eid = normalize_encounter_id(encounter_id)
 
         async with self._queue_lock:
-            # First try exact encounter_id match
-            if encounter_id:
+            # First try exact encounter_id match (normalized - handles a
+            # signed/unsigned 64-bit representation mismatch between the
+            # no-IV and IV webhook deliveries of the same real encounter)
+            if target_eid:
                 for key, entry in list(self._entries.items()):
-                    if entry.encounter_id == encounter_id and not entry.is_removed:
+                    if entry.encounter_id == target_eid and not entry.is_removed:
                         removed = self._remove_entry(key)
                         if removed:
                             was_scouting = removed.is_scouting
@@ -236,8 +263,11 @@ class IVQueueManager:
                     # Must match pokemon_id
                     if entry.pokemon_id != pokemon_id:
                         continue
-                    # Form match: if form provided, must match
-                    if form is not None and entry.form != form:
+                    # Form match: treat missing (None) and default (0) as equivalent,
+                    # since a form can be reported inconsistently across deliveries
+                    e_form = 0 if entry.form is None else entry.form
+                    p_form = 0 if form is None else form
+                    if e_form != p_form:
                         continue
                     if is_within_distance(
                         entry.lat, entry.lon, lat, lon, COORDINATE_MATCH_THRESHOLD_METERS
@@ -246,6 +276,11 @@ class IVQueueManager:
                         if removed:
                             was_scouting = removed.is_scouting
                         break
+
+        if removed:
+            self.record_completed_encounter(removed.encounter_id)
+            if encounter_id:
+                self.record_completed_encounter(encounter_id)
 
         # Release semaphore outside the lock if entry was scouting
         if was_scouting:
@@ -264,7 +299,8 @@ class IVQueueManager:
 
         Args:
             pokemon_id: Pokemon ID to match
-            form: Pokemon form to match (None matches any form)
+            form: Pokemon form to match (None and 0 are treated as equivalent,
+                since form can be reported inconsistently across deliveries)
             s2_cell_id: S2 cell ID to match
 
         Returns:
@@ -283,8 +319,10 @@ class IVQueueManager:
                 # Must match pokemon_id
                 if entry.pokemon_id != pokemon_id:
                     continue
-                # Form matching: if incoming form is not None, must match
-                if form is not None and entry.form != form:
+                # Form matching: treat missing (None) and default (0) as equivalent
+                e_form = 0 if entry.form is None else entry.form
+                p_form = 0 if form is None else form
+                if e_form != p_form:
                     continue
                 # Must be scouting or scouted (not just pending)
                 if not entry.is_scouting and not entry.was_scouted:
@@ -485,6 +523,21 @@ class IVQueueManager:
         if not encounter_id or self._recently_queued is None:
             return False
         return encounter_id in self._recently_queued
+
+    def record_completed_encounter(self, encounter_id: Optional[str]) -> None:
+        """Mark an encounter_id as completed (IV received/matched) so a later
+        no-IV webhook for the same encounter doesn't get re-queued into a
+        stale entry that can never match again."""
+        norm_eid = normalize_encounter_id(encounter_id)
+        if norm_eid and self._completed_encounters is not None:
+            self._completed_encounters[norm_eid] = True
+
+    def is_encounter_completed(self, encounter_id: Optional[str]) -> bool:
+        """Check whether an encounter_id was already completed (IV received)."""
+        norm_eid = normalize_encounter_id(encounter_id)
+        if not norm_eid or self._completed_encounters is None:
+            return False
+        return norm_eid in self._completed_encounters
 
     def get_available_slots(self) -> int:
         """Return number of available scout slots."""
@@ -711,9 +764,12 @@ class IVQueueManager:
                 if entry.scout_started_at:
                     elapsed = current_time - entry.scout_started_at
                     if elapsed > timeout_threshold:
-                        logger.opt(colors=True).debug(
+                        logger.opt(colors=True).warning(
                             f"<red>[x]</red> Scout timeout: Pokemon {entry.pokemon_display} in {entry.area} "
-                            f"[encounter_id: {entry.encounter_id}] - no IV after {int(elapsed)}s"
+                            f"[encounter_id: {entry.encounter_id}] ({entry.list_type}, {entry.seen_type}) - "
+                            f"no IV after {int(elapsed)}s (scout dispatched at "
+                            f"{entry.scout_started_at:.3f}, timeout_iv={timeout_threshold}s) - "
+                            f"grep this encounter_id against '[>] Scout sent' to find the original dispatch"
                         )
                         pokemon_display = entry.pokemon_display
                         seen_type = entry.seen_type

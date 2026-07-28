@@ -9,174 +9,16 @@ This ensures ivlist/celllist ALWAYS take priority over auto_rarity.
 from __future__ import annotations
 
 import time as time_module
-from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 from LazyIVQueue.utils.logger import logger
 from LazyIVQueue.utils.koji_geofences import KojiGeofenceManager
-from LazyIVQueue.utils.geo_utils import is_within_distance, COORDINATE_MATCH_THRESHOLD_METERS
 from LazyIVQueue.utils.s2_utils import get_s2_cell_id
 from LazyIVQueue.queue.iv_queue import IVQueueManager, QueueEntry
 from LazyIVQueue.rarity.manager import RarityManager
+from LazyIVQueue.webhook.pokemon_data import PokemonData, parse_pokemon_data
+from LazyIVQueue.webhook.list_matching import is_in_ivlist, is_in_celllist, is_in_any_list, is_in_denylist
 import LazyIVQueue.config as AppConfig
-
-
-@dataclass
-class PokemonData:
-    """Parsed Pokemon webhook data."""
-
-    pokemon_id: int
-    form: Optional[int]
-    latitude: float
-    longitude: float
-    spawnpoint_id: Optional[str]
-    individual_attack: Optional[int]  # None = no IV data
-    individual_defense: Optional[int]
-    individual_stamina: Optional[int]
-    encounter_id: Optional[str]
-    disappear_time: Optional[int]
-    seen_type: str  # "wild", "nearby_stop", or "nearby_cell"
-    costume: Optional[int] = None
-
-    @property
-    def has_iv(self) -> bool:
-        """Check if Pokemon has IV data."""
-        return self.individual_attack is not None
-
-    @property
-    def pokemon_display(self) -> str:
-        """Human-readable pokemon identifier."""
-        display = f"{self.pokemon_id}:{self.form}" if self.form is not None else str(self.pokemon_id)
-        if self.costume:
-            display += f":{self.costume}"
-        return display
-
-    @property
-    def iv_total(self) -> int:
-        """Total IV value (0-45)."""
-        if not self.has_iv:
-            return 0
-        return (
-            (self.individual_attack or 0)
-            + (self.individual_defense or 0)
-            + (self.individual_stamina or 0)
-        )
-
-    @property
-    def iv_percent(self) -> float:
-        """IV percentage (0-100)."""
-        return round(self.iv_total / 45 * 100, 1)
-
-
-def parse_pokemon_data(raw: Dict[str, Any]) -> Optional[PokemonData]:
-    """
-    Parse raw webhook payload into PokemonData.
-
-    Expected fields from Golbat:
-    - pokemon_id: int
-    - form: int (optional)
-    - latitude: float
-    - longitude: float
-    - spawnpoint_id: str (optional)
-    - individual_attack: int (optional, None if not scanned)
-    - individual_defense: int (optional)
-    - individual_stamina: int (optional)
-    - encounter_id: str
-    - disappear_time: int (unix timestamp)
-    - costume: int (optional, 0 = no costume)
-    """
-    try:
-        pokemon_id = raw.get("pokemon_id")
-        latitude = raw.get("latitude")
-        longitude = raw.get("longitude")
-
-        # Validate required fields
-        if pokemon_id is None or latitude is None or longitude is None:
-            logger.debug(f"Missing required Pokemon fields: {raw.keys()}")
-            return None
-
-        return PokemonData(
-            pokemon_id=int(pokemon_id),
-            form=raw.get("form"),
-            latitude=float(latitude),
-            longitude=float(longitude),
-            spawnpoint_id=raw.get("spawnpoint_id"),
-            individual_attack=raw.get("individual_attack"),
-            individual_defense=raw.get("individual_defense"),
-            individual_stamina=raw.get("individual_stamina"),
-            encounter_id=raw.get("encounter_id"),
-            disappear_time=raw.get("disappear_time"),
-            seen_type=raw.get("seen_type", "wild"),
-            costume=raw.get("costume"),
-        )
-    except (ValueError, TypeError) as e:
-        logger.warning(f"Error parsing Pokemon data: {e}")
-        return None
-
-
-def _match_priority(
-    pokemon_id: int,
-    form: Optional[int],
-    costume: Optional[int],
-    parsed: Dict[AppConfig.IVListKey, int],
-) -> Optional[int]:
-    """
-    Look up priority for a (pokemon_id, form, costume) combination against a
-    parsed ivlist/celllist/denylist dict.
-
-    Checks all wildcard-normalized candidate keys (exact form/costume, exact
-    form only, exact costume only, any/any) and returns the MINIMUM priority
-    among the ones that hit - since priority is list index, this means the
-    earliest-configured matching entry wins, regardless of specificity.
-    """
-    pid = str(pokemon_id)
-    form_s = str(form) if form is not None else None
-    costume_s = str(costume) if costume is not None else None
-
-    candidates = {
-        (pid, form_s, costume_s),
-        (pid, form_s, None),
-        (pid, None, costume_s),
-        (pid, None, None),
-    }
-    priorities = [parsed[key] for key in candidates if key in parsed]
-    return min(priorities) if priorities else None
-
-
-def is_in_ivlist(pokemon: PokemonData) -> Tuple[bool, Optional[int]]:
-    """
-    Check if Pokemon matches ivlist.
-
-    Returns:
-        (matches: bool, priority: Optional[int])
-    """
-    priority = _match_priority(pokemon.pokemon_id, pokemon.form, pokemon.costume, AppConfig.ivlist_parsed)
-    return priority is not None, priority
-
-
-def is_in_celllist(pokemon: PokemonData) -> Tuple[bool, Optional[int]]:
-    """
-    Check if Pokemon matches celllist (for nearby_cell scouting).
-
-    Returns:
-        (matches: bool, priority: Optional[int])
-        Priority uses tier 0 (highest) for celllist entries.
-    """
-    priority = _match_priority(pokemon.pokemon_id, pokemon.form, pokemon.costume, AppConfig.celllist_parsed)
-    return priority is not None, priority
-
-
-def is_in_any_list(pokemon: PokemonData) -> bool:
-    """Check if Pokemon matches either ivlist or celllist."""
-    matches_iv, _ = is_in_ivlist(pokemon)
-    matches_cell, _ = is_in_celllist(pokemon)
-    return matches_iv or matches_cell
-
-
-def is_in_denylist(pokemon: PokemonData) -> bool:
-    """Check if Pokemon matches the denylist (should not be scouted)."""
-    priority = _match_priority(pokemon.pokemon_id, pokemon.form, pokemon.costume, AppConfig.denylist_parsed)
-    return priority is not None
 
 
 async def record_census_spawn(pokemon: PokemonData, area: str) -> None:
@@ -383,7 +225,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
     in_vip_list = is_in_any_list(pokemon)
     if not in_vip_list and not AppConfig.auto_rarity_enabled:
         # Not in VIP list and auto_rarity disabled = skip
-        logger.opt(colors=True).warning(
+        logger.opt(colors=True).trace(
             f"<yellow>[?]</yellow> IV received but not in VIP list and auto_rarity disabled: "
             f"Pokemon {pokemon.pokemon_display} [encounter_id: {pokemon.encounter_id}] "
             f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} - skipping"
@@ -392,6 +234,12 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
 
     # Check 3: Geofence check (optional based on config)
     queue = await IVQueueManager.get_instance()
+    # Mark this encounter completed as soon as we know IV arrived for it,
+    # regardless of whether the match below succeeds - prevents a later
+    # no-IV webhook for the same encounter from being re-queued into a
+    # stale entry that can never match again.
+    if pokemon.encounter_id:
+        queue.record_completed_encounter(pokemon.encounter_id)
     area = "GLOBAL"
     if AppConfig.filter_with_koji or AppConfig.filter_with_geofence_file:
         geofence_manager = await KojiGeofenceManager.get_instance()
@@ -400,7 +248,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
             # Only worth warning about if this encounter was actually queued - otherwise
             # this is just routine traffic from outside the configured geofences
             if queue.has_pending_entry(pokemon.encounter_id):
-                logger.opt(colors=True).warning(
+                logger.opt(colors=True).trace(
                     f"<yellow>[?]</yellow> IV received but outside all geofences: Pokemon {pokemon.pokemon_display} "
                     f"[encounter_id: {pokemon.encounter_id}] at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
                     f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} - "
