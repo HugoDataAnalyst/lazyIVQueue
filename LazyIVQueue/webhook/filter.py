@@ -131,7 +131,9 @@ def _match_priority(
     """
     pid = str(pokemon_id)
     form_s = str(form) if form is not None else None
-    costume_s = str(costume) if costume is not None else None
+    # Costume 0 and missing/None both mean "no costume" - treat them the same,
+    # since a webhook payload may report either depending on message type.
+    costume_s = str(costume) if costume else None
 
     candidates = {
         (pid, form_s, costume_s),
@@ -392,6 +394,12 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
 
     # Check 3: Geofence check (optional based on config)
     queue = await IVQueueManager.get_instance()
+    # Mark this encounter completed as soon as we know IV arrived for it,
+    # regardless of whether the match below succeeds - prevents a later
+    # no-IV webhook for the same encounter from being re-queued into a
+    # stale entry that can never match again.
+    if pokemon.encounter_id:
+        queue.record_completed_encounter(pokemon.encounter_id)
     area = "GLOBAL"
     if AppConfig.filter_with_koji or AppConfig.filter_with_geofence_file:
         geofence_manager = await KojiGeofenceManager.get_instance()
