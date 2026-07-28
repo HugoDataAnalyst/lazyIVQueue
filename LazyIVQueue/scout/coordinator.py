@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Optional, Dict, Any
 
 from LazyIVQueue.utils.logger import logger
@@ -9,7 +10,7 @@ from LazyIVQueue.utils.s2_utils import generate_9_point_grid
 from LazyIVQueue.queue.iv_queue import IVQueueManager, QueueEntry
 from LazyIVQueue.DragoniteAPI import get_dragonite_client
 from LazyIVQueue.DragoniteAPI.utils.http_api import APIClient
-from LazyIVQueue.DragoniteAPI.endpoints.scout import scout_single, scout_v2
+from LazyIVQueue.DragoniteAPI.endpoints.scout import scout_single
 import LazyIVQueue.config as AppConfig
 
 
@@ -31,6 +32,11 @@ class ScoutCoordinator:
         self._task: Optional[asyncio.Task] = None
         self._client: Optional[APIClient] = None
         self._check_interval: float = 0.5  # seconds between queue checks
+
+        # Minimum gap enforced between every individual /scout/v2 dispatch
+        # (cell sub-coordinates and entry-to-entry alike) - see _wait_for_jump_delay
+        self._last_scout_at: float = 0.0
+        self._jump_delay_lock: asyncio.Lock = asyncio.Lock()
 
         # Metrics
         self._total_scouts: int = 0
@@ -88,14 +94,34 @@ class ScoutCoordinator:
                 logger.error(f"Error in scout coordinator loop: {e}")
                 await asyncio.sleep(self._check_interval)
 
+    async def _wait_for_jump_delay(self) -> None:
+        """
+        Enforce a minimum gap (AppConfig.scout_jump_delay) before the next
+        individual /scout/v2 dispatch - applies to every cell sub-coordinate
+        and every entry-to-entry dispatch alike.
+
+        Locked because _run_loop fires scouts as un-awaited background tasks,
+        so two entries' dispatches can genuinely race; without the lock two
+        concurrent calls could both see "plenty of time elapsed" and fire
+        back-to-back, defeating the pacing.
+        """
+        delay = AppConfig.scout_jump_delay
+        if delay <= 0:
+            return
+        async with self._jump_delay_lock:
+            remaining = delay - (time.time() - self._last_scout_at)
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+            self._last_scout_at = time.time()
+
     async def _execute_scout(self, entry: QueueEntry) -> None:
         """
         Execute a single scout operation.
 
-        For nearby_cell: Uses honeycomb pattern (7 coordinates)
-        For wild/nearby_stop: Uses single coordinate
-
-        Calls Dragonite API v2: POST /v2/scout with {username, locations, options}
+        For nearby_cell: sends the 9-point grid as 9 separate sequential
+        /scout/v2 calls, paced by scout_jump_delay between each.
+        For wild/nearby_stop: sends a single coordinate, also paced by
+        scout_jump_delay relative to the previous dispatch (of any kind).
         """
         queue = await IVQueueManager.get_instance()
         success = False
@@ -108,9 +134,16 @@ class ScoutCoordinator:
                 logger.debug(
                     f"Sending S2 Grid scout request: Pokemon {entry.pokemon_display} "
                     f"at ({entry.lat:.6f}, {entry.lon:.6f}) in {entry.area} "
-                    f"[s2_cell: {entry.s2_cell_id}] ({coord_count} coords)"
+                    f"[s2_cell: {entry.s2_cell_id}] ({coord_count} coords, "
+                    f"{AppConfig.scout_jump_delay}s between each)"
                 )
-                response = await scout_v2(self._client, coordinates)
+                response = []
+                for i, (lat, lon) in enumerate(coordinates, 1):
+                    await self._wait_for_jump_delay()
+                    logger.debug(
+                        f"S2 grid coord [{i}/{coord_count}]: ({lat:.6f}, {lon:.6f})"
+                    )
+                    response.append(await scout_single(self._client, lat, lon))
             else:
                 # Single coordinate for wild/nearby_stop
                 coord_count = 1
@@ -119,6 +152,7 @@ class ScoutCoordinator:
                     f"at ({entry.lat:.6f}, {entry.lon:.6f}) in {entry.area} "
                     f"[encounter_id: {entry.encounter_id}]"
                 )
+                await self._wait_for_jump_delay()
                 response = await scout_single(self._client, entry.lat, entry.lon)
 
             self._total_scouts += 1
