@@ -107,6 +107,7 @@ celllist: List[str] = config.get("celllist", [])
 denylist: List[str] = config.get("denylist", [])
 timeout_iv: int = config.get("scout", {}).get("timeout_iv", 180)
 wild_scout_delay: int = config.get("scout", {}).get("wild_scout_delay", 0)
+scout_jump_delay: float = config.get("scout", {}).get("scout_jump_delay", 0)
 
 IVListKey = Tuple[str, Optional[str], Optional[str]]
 
@@ -159,7 +160,7 @@ def reload_config() -> Dict[str, any]:
     global config, ivlist, celllist, ivlist_parsed, celllist_parsed, denylist, denylist_parsed
     global auto_rarity_config, calibration_minutes, iv_threshold, cell_threshold
     global ranking_interval_seconds, cleanup_interval_seconds
-    global concurrency_scout, timeout_iv, wild_scout_delay
+    global concurrency_scout, timeout_iv, wild_scout_delay, scout_jump_delay
     global geofence_expire_cache_seconds, geofence_refresh_cache_seconds
 
     changes = {}
@@ -231,6 +232,11 @@ def reload_config() -> Dict[str, any]:
     if new_wild_scout_delay != wild_scout_delay:
         changes["wild_scout_delay"] = {"old": wild_scout_delay, "new": new_wild_scout_delay}
         wild_scout_delay = new_wild_scout_delay
+
+    new_scout_jump_delay = new_config.get("scout", {}).get("scout_jump_delay", 0)
+    if new_scout_jump_delay != scout_jump_delay:
+        changes["scout_jump_delay"] = {"old": scout_jump_delay, "new": new_scout_jump_delay}
+        scout_jump_delay = new_scout_jump_delay
 
     # Track geofence cache settings
     new_expire = new_config.get("geofences", {}).get("expire_cache_seconds", 3600)
