@@ -225,7 +225,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
     in_vip_list = is_in_any_list(pokemon)
     if not in_vip_list and not AppConfig.auto_rarity_enabled:
         # Not in VIP list and auto_rarity disabled = skip
-        logger.opt(colors=True).warning(
+        logger.opt(colors=True).trace(
             f"<yellow>[?]</yellow> IV received but not in VIP list and auto_rarity disabled: "
             f"Pokemon {pokemon.pokemon_display} [encounter_id: {pokemon.encounter_id}] "
             f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} - skipping"
@@ -248,7 +248,7 @@ async def filter_iv_pokemon(pokemon: PokemonData) -> None:
             # Only worth warning about if this encounter was actually queued - otherwise
             # this is just routine traffic from outside the configured geofences
             if queue.has_pending_entry(pokemon.encounter_id):
-                logger.opt(colors=True).warning(
+                logger.opt(colors=True).trace(
                     f"<yellow>[?]</yellow> IV received but outside all geofences: Pokemon {pokemon.pokemon_display} "
                     f"[encounter_id: {pokemon.encounter_id}] at ({pokemon.latitude:.6f}, {pokemon.longitude:.6f}) "
                     f"IV: {pokemon.individual_attack}/{pokemon.individual_defense}/{pokemon.individual_stamina} - "
