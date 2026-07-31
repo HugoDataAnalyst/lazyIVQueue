@@ -5,7 +5,7 @@
     "auto_rarity": {
         "calibration_minutes": 5,
         "iv_threshold": 50,
-        "cell_threshold": 10,
+        "cell_threshold": 0,
         "ranking_interval_seconds": 120,
         "cleanup_interval_seconds": 60
     },

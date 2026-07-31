@@ -60,7 +60,7 @@ auto_rarity_enabled: bool = get_env_var("AUTO_RARITY", "FALSE").upper() == "TRUE
 auto_rarity_config = config.get("auto_rarity", {})
 calibration_minutes: int = auto_rarity_config.get("calibration_minutes", 5)
 iv_threshold: int = auto_rarity_config.get("iv_threshold", 50)
-cell_threshold: int = auto_rarity_config.get("cell_threshold", 20)
+cell_threshold: int = auto_rarity_config.get("cell_threshold", 20)  # 0 = cell auto_rarity disabled
 ranking_interval_seconds: int = auto_rarity_config.get("ranking_interval_seconds", 300)
 cleanup_interval_seconds: int = auto_rarity_config.get("cleanup_interval_seconds", 60)
 

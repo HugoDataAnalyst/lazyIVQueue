@@ -110,14 +110,53 @@ async def filter_non_iv_pokemon(pokemon: PokemonData) -> None:
         return
 
     if seen_type == "nearby_cell":
-        # nearby_cell: ONLY check celllist (no auto_rarity for cell scouting)
+        # nearby_cell: check celllist first (VIP), then auto_rarity if cell_threshold > 0
+        # (cell_threshold == 0 means cell auto_rarity is disabled, same convention as wild_scout_delay)
         matches_cell, cell_priority = is_in_celllist(pokemon)
         if matches_cell and cell_priority is not None:
             priority = cell_priority
             s2_cell_id = get_s2_cell_id(pokemon.latitude, pokemon.longitude)
             list_type = "celllist"
+        elif AppConfig.auto_rarity_enabled and AppConfig.cell_threshold > 0:
+            # Auto Rarity fallback for cell scouting
+            rarity_manager = await RarityManager.get_instance()
+
+            # Check if calibration complete
+            if not rarity_manager.is_ready():
+                # Still calibrating - check if we have VIP lists to fall back to
+                has_vip_lists = bool(AppConfig.ivlist) or bool(AppConfig.celllist)
+                if has_vip_lists:
+                    logger.trace(f"Auto Rarity calibrating, skipping non-celllist {pokemon.pokemon_display} (nearby_cell)")
+                    return
+                else:
+                    logger.trace(f"Auto Rarity calibrating (no VIP lists), skipping {pokemon.pokemon_display} (nearby_cell)")
+                    return
+
+            # Get rarity rank (None = truly unknown, 1 = rarest, higher = more common)
+            rank = rarity_manager.get_rarity_rank(pokemon.pokemon_id, pokemon.form, area)
+            if rank is None:
+                # Truly unknown Pokemon (never seen in census) = treat as ultra rare
+                priority = 1000
+                list_type = "auto_rarity(unknown)"
+                s2_cell_id = get_s2_cell_id(pokemon.latitude, pokemon.longitude)
+                logger.debug(
+                    f"Auto Rarity (cell): {pokemon.pokemon_display} unknown (not in census) in {area} - treating as ultra rare"
+                )
+            elif rank <= AppConfig.cell_threshold:
+                # Known Pokemon within threshold - queue it
+                priority = 1000 + rank
+                list_type = f"auto_rarity(rank={rank})"
+                s2_cell_id = get_s2_cell_id(pokemon.latitude, pokemon.longitude)
+                logger.debug(
+                    f"Auto Rarity (cell): {pokemon.pokemon_display} rank {rank} <= cell_threshold {AppConfig.cell_threshold} in {area}"
+                )
+            else:
+                logger.trace(
+                    f"Pokemon {pokemon.pokemon_display} (nearby_cell) rank {rank} > cell_threshold {AppConfig.cell_threshold}, skipping"
+                )
+                return
         else:
-            # Not in celllist = skip entirely (don't fall through to ivlist)
+            # Not in celllist (and no cell auto_rarity fallback) = skip entirely
             logger.trace(f"Pokemon {pokemon.pokemon_display} nearby_cell not in celllist, skipping")
             return
     else:

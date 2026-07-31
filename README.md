@@ -91,7 +91,7 @@ headers = ["HeaderName: Value"]
 - `auto_rarity` - Dynamic rarity settings (when `AUTO_RARITY=TRUE`):
   - `calibration_minutes` - Minutes to collect spawn data before rankings are used (default: 5)
   - `iv_threshold` - Queue Pokemon with rarity rank below this (default: 50, lower = rarer)
-  - `cell_threshold` - Cell scout threshold (default: 20)
+  - `cell_threshold` - Queue `nearby_cell` Pokemon with rarity rank below this (default: `20`; `0` disables cell auto-rarity — `nearby_cell` then only scouts `celllist` entries, exactly as before)
   - `ranking_interval_seconds` - How often to recalculate rankings (default: 120)
   - `cleanup_interval_seconds` - How often to remove despawned Pokemon from tracking (default: 60)
 
@@ -104,7 +104,7 @@ When `AUTO_RARITY=TRUE`, LazyIVQueue dynamically tracks Pokemon spawn rarity and
 1. **Spawn Tracking**: Every non-IV spawn received on `/webhook` is automatically recorded for rarity tracking — no separate census webhook needed
 2. **Rarity Tracking**: The system tracks active spawns per area (or globally if Koji disabled)
 3. **Calibration**: During the calibration period, only ivlist/celllist Pokemon are queued
-4. **Dynamic Queueing**: After calibration, Pokemon with rarity rank below the threshold are queued
+4. **Dynamic Queueing**: After calibration, Pokemon with rarity rank below the threshold are queued — `wild`/`nearby_stop` use `iv_threshold`; `nearby_cell` uses `cell_threshold` (set it to `0` to keep `nearby_cell` on `celllist`-only, no dynamic component)
 
 ### Priority System (lower = higher priority)
 
